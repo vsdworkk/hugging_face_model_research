@@ -7,18 +7,21 @@ models:
     model_id: "meta-llama/Llama-3.2-3B-Instruct"
     torch_dtype: "auto"
     device_map: "auto"
+    is_instruct: true
   
   - name: "llama_1b_Instruct"
     enabled: true
     model_id: "meta-llama/Llama-3.2-1B-Instruct"
     torch_dtype: "auto"
     device_map: "auto"
+    is_instruct: true
   
   - name: "gemma-3-1b-it"
     enabled: true
     model_id: "google/gemma-3-1b-it"
     torch_dtype: "auto"
     device_map: "auto"
+    is_instruct: true
 
 # IMPORTANT: Do NOT put secrets here.
 # Provide HF token via Databricks secret or the 'hf_token' widget (sets HF_TOKEN env).

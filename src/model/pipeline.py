@@ -62,9 +62,17 @@ class ProfileAnalysisPipeline:
 
     def build_prompt(self, about_text: str) -> str:
         messages = build_profile_analysis_messages(about_text)
-        return self.pipe.tokenizer.apply_chat_template(
-            messages, add_generation_prompt=True, tokenize=False
-        )
+        
+        if self.model_config.is_instruct:
+            # Instruction-tuned: use chat template with special tokens
+            return self.pipe.tokenizer.apply_chat_template(
+                messages, add_generation_prompt=True, tokenize=False
+            )
+        else:
+            # Base model: simple concatenation
+            system = messages[0]["content"]
+            user = messages[1]["content"]
+            return f"{system}\n\n{user}\n\nAnalysis:"
 
     def generate_batch(self, about_texts: list[str]) -> list[str]:
         prompts = [self.build_prompt(t) for t in about_texts]

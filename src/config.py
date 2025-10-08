@@ -16,6 +16,7 @@ class ModelConfig:
     model_id: str = "meta-llama/Llama-3-8B-Instruct"
     torch_dtype: TorchDtypeStr = "auto"
     device_map: str = "auto"
+    is_instruct: bool = False
     hf_token: Optional[str] = None
 
 
