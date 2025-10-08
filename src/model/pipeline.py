@@ -1,5 +1,4 @@
 """LLM pipeline initialization and management."""
-import logging
 from typing import Optional
 
 import torch
@@ -7,8 +6,6 @@ from transformers import Pipeline, pipeline
 
 from ..config import ModelConfig, GenerationConfig
 from .prompts import build_profile_analysis_messages
-
-logger = logging.getLogger(__name__)
 
 
 def _resolve_torch_dtype(dtype_str: str):
@@ -32,8 +29,6 @@ class ProfileAnalysisPipeline:
         self._pipe: Optional[Pipeline] = None
 
     def initialize(self) -> None:
-        logger.info("Loading model '%s': %s", self.model_name, self.model_config.model_id)
-
         hub_kwargs = {}
         if self.model_config.hf_token:
             # transformers >=4.37 prefers 'token', older versions used 'use_auth_token'
@@ -52,16 +47,12 @@ class ProfileAnalysisPipeline:
             tok.pad_token = tok.eos_token or tok.unk_token
         tok.padding_side = "left"
 
-        logger.info("Pipeline '%s' initialized", self.model_name)
-
     def cleanup(self) -> None:
         if self._pipe is not None:
-            logger.info("Cleaning up model '%s'", self.model_name)
             del self._pipe
             self._pipe = None
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-                logger.info("GPU cache cleared")
 
     @property
     def pipe(self) -> Pipeline:

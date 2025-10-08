@@ -1,11 +1,8 @@
 """Evaluation metrics and confusion matrix calculation."""
-import logging
 from dataclasses import dataclass
 from typing import Optional
 
 import pandas as pd
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -78,7 +75,6 @@ def label_to_binary(value) -> Optional[int]:
 def calculate_metrics(y_true: pd.Series, y_pred: pd.Series) -> ClassificationMetrics:
     df = pd.DataFrame({"y_true": y_true.apply(label_to_binary), "y_pred": y_pred.apply(label_to_binary)}).dropna()
     if df.empty:
-        logger.warning("No valid label pairs found for evaluation")
         return ClassificationMetrics(0, 0, 0, 0, 0)
 
     tp = int(((df["y_true"] == 1) & (df["y_pred"] == 1)).sum())

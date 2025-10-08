@@ -1,5 +1,4 @@
 """Batch processing orchestration for profile analysis."""
-import logging
 from typing import Optional, List
 
 import pandas as pd
@@ -9,8 +8,6 @@ from ..config import AppConfig, ModelConfig
 from ..constants import make_model_columns
 from ..model.pipeline import ProfileAnalysisPipeline
 from .json_parser import parse_model_outputs_to_dataframe
-
-logger = logging.getLogger(__name__)
 
 
 class ProfileBatchProcessor:
@@ -38,10 +35,6 @@ class ProfileBatchProcessor:
         cols = make_model_columns(model_config.name)
         output_col = cols["output"]
 
-        logger.info("=" * 60)
-        logger.info("Processing model %s (id=%s)", model_config.name, model_config.model_id)
-        logger.info("=" * 60)
-
         pipeline: Optional[ProfileAnalysisPipeline] = None
         try:
             pipeline = ProfileAnalysisPipeline(
@@ -52,7 +45,6 @@ class ProfileBatchProcessor:
 
             texts = result_df[input_col].astype(str).tolist()
             nonempty_idx = [i for i, txt in enumerate(texts) if txt.strip()]
-            logger.info("Non-empty rows to process: %d", len(nonempty_idx))
 
             raw_outputs: list[Optional[str]] = [None] * len(texts)
             bs = self.config.generation.batch_size
@@ -68,13 +60,10 @@ class ProfileBatchProcessor:
             result_df[output_col] = raw_outputs
 
             if parse_outputs:
-                logger.info("Parsing outputs for model '%s'", model_config.name)
                 parsed_df = parse_model_outputs_to_dataframe(result_df[output_col], prefix=f"ai_{model_config.name}_")
                 # align columns
                 for col in parsed_df.columns:
                     result_df[col] = parsed_df[col]
-
-            logger.info("✅ Model '%s' complete", model_config.name)
 
         except Exception as e:
             raise RuntimeError(f"Failed to process model '{model_config.name}': {e}") from e
@@ -82,8 +71,8 @@ class ProfileBatchProcessor:
             if pipeline is not None:
                 try:
                     pipeline.cleanup()
-                except Exception as ce:
-                    logger.warning("Cleanup warning for '%s': %s", model_config.name, ce)
+                except Exception:
+                    pass
 
         return result_df
 
@@ -100,12 +89,8 @@ class ProfileBatchProcessor:
         if input_col not in df.columns:
             raise ValueError(f"Input column '{input_col}' not found in DataFrame")
 
-        logger.info("Processing %d rows across %d model(s)", len(df), len(self.enabled_models))
         out = df.copy()
         for m in self.enabled_models:
             out = self._process_with_model(out, m, input_col, parse_outputs)
 
-        logger.info("=" * 60)
-        logger.info("✅ All %d model(s) completed", len(self.enabled_models))
-        logger.info("=" * 60)
         return out

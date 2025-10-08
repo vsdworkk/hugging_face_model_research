@@ -1,13 +1,10 @@
 """Robust JSON parsing utilities for LLM outputs."""
 import json
 import re
-import logging
 from typing import Any, Optional
 
 import pandas as pd
 from ..constants import OutputColumn
-
-logger = logging.getLogger(__name__)
 
 _JSON_OBJECT_RE = re.compile(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}")
 
@@ -56,8 +53,6 @@ def parse_model_outputs_to_dataframe(raw_outputs: pd.Series, prefix: str = "ai_"
     Parse model JSON outputs into a normalized DataFrame with guaranteed columns:
       <prefix>quality, <prefix>reasoning, <prefix>tags, <prefix>recommendation_email
     """
-    logger.info("Parsing %d outputs", len(raw_outputs))
-
     parsed = raw_outputs.apply(extract_first_json_object)
     df = pd.json_normalize(parsed).add_prefix(prefix)
 
@@ -91,5 +86,4 @@ def parse_model_outputs_to_dataframe(raw_outputs: pd.Series, prefix: str = "ai_"
     rsn = f"{prefix}{OutputColumn.REASONING}"
     df[rsn] = df[rsn].fillna("").astype(str)
 
-    logger.info("Parsed %d valid quality labels", int(df[qcol].notna().sum()))
     return df
