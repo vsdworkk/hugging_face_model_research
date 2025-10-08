@@ -1,8 +1,6 @@
 """Batch processing orchestration for profile analysis."""
-
 import logging
-from pathlib import Path
-from typing import Optional, Union
+from typing import Optional, List
 
 import pandas as pd
 from tqdm.auto import tqdm
@@ -16,22 +14,18 @@ logger = logging.getLogger(__name__)
 
 
 class ProfileBatchProcessor:
-    """Unified processor supporting single or multiple models."""
+    """Runs one or more models over a DataFrame of 'About Me' texts."""
 
     def __init__(self, config: AppConfig):
-        """Initialize the processor with application config."""
         self.config = config
-        self.enabled_models = config.enabled_models
-
-        if len(self.enabled_models) == 0:
+        self.enabled_models: List[ModelConfig] = config.enabled_models
+        if not self.enabled_models:
             raise ValueError("No enabled models found in configuration")
 
     def get_model_summary(self) -> str:
-        """Get a summary of enabled models."""
-        summary = f"Enabled Models ({len(self.enabled_models)}):\n"
-        for idx, model in enumerate(self.enabled_models, 1):
-            summary += f"  {idx}. {model.name}: {model.model_id}\n"
-        return summary
+        lines = [f"Enabled Models ({len(self.enabled_models)}):"]
+        lines += [f"  {i}. {m.name}: {m.model_id}" for i, m in enumerate(self.enabled_models, 1)]
+        return "\n".join(lines)
 
     def _process_with_model(
         self,
@@ -40,84 +34,56 @@ class ProfileBatchProcessor:
         input_col: str,
         parse_outputs: bool,
     ) -> pd.DataFrame:
-        """Process dataframe with a single model and optionally parse outputs."""
         result_df = df.copy()
-
-        logger.info(f"\n{'='*60}")
-        logger.info(
-            f"Processing Model {model_config.name} | ID: {model_config.model_id}"
-        )
-        logger.info(f"{'='*60}\n")
-
         cols = make_model_columns(model_config.name)
         output_col = cols["output"]
 
+        logger.info("=" * 60)
+        logger.info("Processing model %s (id=%s)", model_config.name, model_config.model_id)
+        logger.info("=" * 60)
+
         pipeline: Optional[ProfileAnalysisPipeline] = None
         try:
-            # Initialize pipeline
             pipeline = ProfileAnalysisPipeline(
                 model_config=model_config,
                 generation_config=self.config.generation,
             )
             pipeline.initialize()
 
-            # Extract texts and identify non-empty ones
             texts = result_df[input_col].astype(str).tolist()
-            is_nonempty = [bool(text.strip()) for text in texts]
+            nonempty_idx = [i for i, txt in enumerate(texts) if txt.strip()]
+            logger.info("Non-empty rows to process: %d", len(nonempty_idx))
 
-            # Initialize output storage
             raw_outputs: list[Optional[str]] = [None] * len(texts)
-            nonempty_indices = [i for i, ok in enumerate(is_nonempty) if ok]
+            bs = self.config.generation.batch_size
 
-            logger.info(
-                f"Found {len(nonempty_indices)} non-empty profiles to process"
-            )
+            for start in tqdm(range(0, len(nonempty_idx), bs), desc=f"{model_config.name}: batches"):
+                idxs = nonempty_idx[start:start + bs]
+                batch_texts = [texts[i] for i in idxs]
 
-            # Batch processing loop
-            batch_size = self.config.generation.batch_size
-            for batch_start in tqdm(
-                range(0, len(nonempty_indices), batch_size),
-                desc=f"{model_config.name}: Processing batches",
-            ):
-                batch_indices = nonempty_indices[batch_start : batch_start + batch_size]
-                batch_texts = [texts[idx] for idx in batch_indices]
+                batch_out = pipeline.generate_batch(batch_texts)
+                for i, out in zip(idxs, batch_out):
+                    raw_outputs[i] = out
 
-                # Generate assessments
-                batch_outputs = pipeline.generate_batch(batch_texts)
-
-                # Store results
-                for idx, output in zip(batch_indices, batch_outputs):
-                    raw_outputs[idx] = output
-
-            # Attach raw outputs
             result_df[output_col] = raw_outputs
 
-            # Parse outputs if requested
             if parse_outputs:
-                logger.info(f"Parsing outputs for model '{model_config.name}'")
-                parsed_df = parse_model_outputs_to_dataframe(
-                    result_df[output_col],
-                    prefix=f"ai_{model_config.name}_",
-                )
+                logger.info("Parsing outputs for model '%s'", model_config.name)
+                parsed_df = parse_model_outputs_to_dataframe(result_df[output_col], prefix=f"ai_{model_config.name}_")
+                # align columns
                 for col in parsed_df.columns:
                     result_df[col] = parsed_df[col]
 
-            logger.info(f"✅ Model '{model_config.name}' processing complete!")
+            logger.info("✅ Model '%s' complete", model_config.name)
 
         except Exception as e:
-            # Fail fast with context for clearer error surfacing
-            raise RuntimeError(
-                f"Failed to process model '{model_config.name}': {e}"
-            ) from e
+            raise RuntimeError(f"Failed to process model '{model_config.name}': {e}") from e
         finally:
-            # Cleanup pipeline to free memory
-            try:
-                if pipeline is not None:
+            if pipeline is not None:
+                try:
                     pipeline.cleanup()
-            except Exception as cleanup_error:
-                logger.warning(
-                    f"Cleanup warning for '{model_config.name}': {cleanup_error}"
-                )
+                except Exception as ce:
+                    logger.warning("Cleanup warning for '%s': %s", model_config.name, ce)
 
         return result_df
 
@@ -127,66 +93,19 @@ class ProfileBatchProcessor:
         input_column: Optional[str] = None,
         parse_outputs: bool = True,
     ) -> pd.DataFrame:
-        """Process a DataFrame through all enabled models.
-
-        Args:
-            df: Input DataFrame with profile texts.
-            input_column: Column name with "About Me" text.
-            parse_outputs: Whether to parse JSON outputs into separate columns.
-
-        Returns:
-            DataFrame with outputs from all models.
-        """
-        if df is None or len(df) == 0:
+        if df is None or df.empty:
             return df
 
         input_col = input_column or self.config.data.dataset_column
         if input_col not in df.columns:
             raise ValueError(f"Input column '{input_col}' not found in DataFrame")
 
-        logger.info(
-            f"Processing {len(df)} profiles through {len(self.enabled_models)} model(s)"
-        )
+        logger.info("Processing %d rows across %d model(s)", len(df), len(self.enabled_models))
+        out = df.copy()
+        for m in self.enabled_models:
+            out = self._process_with_model(out, m, input_col, parse_outputs)
 
-        result_df = df.copy()
-        for model_config in self.enabled_models:
-            result_df = self._process_with_model(
-                result_df,
-                model_config,
-                input_col,
-                parse_outputs,
-            )
-
-        logger.info(f"\n{'='*60}")
-        logger.info(f"✅ All {len(self.enabled_models)} model(s) completed!")
-        logger.info(f"{'='*60}\n")
-
-        return result_df
-
-    def process_csv(
-        self,
-        input_path: Path,
-        output_path: Path,
-        limit: Optional[int] = None,
-        parse_outputs: bool = True,
-    ) -> pd.DataFrame:
-        """Process profiles from CSV through all models and save results."""
-        logger.info(f"Loading data from {input_path}")
-        df = pd.read_csv(input_path)
-
-        if limit:
-            logger.info(f"Limiting to first {limit} rows")
-            df = df.head(limit)
-
-        # Process through all models
-        result_df = self.process_dataframe(df, parse_outputs=parse_outputs)
-
-        # Save results
-        logger.info(f"Saving results to {output_path}")
-        result_df.to_csv(output_path, index=False)
-        logger.info("Results saved successfully!")
-
-        return result_df
-
-
- 
+        logger.info("=" * 60)
+        logger.info("✅ All %d model(s) completed", len(self.enabled_models))
+        logger.info("=" * 60)
+        return out

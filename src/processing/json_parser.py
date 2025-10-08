@@ -1,5 +1,4 @@
 """Robust JSON parsing utilities for LLM outputs."""
-
 import json
 import re
 import logging
@@ -10,115 +9,87 @@ from ..constants import OutputColumn
 
 logger = logging.getLogger(__name__)
 
+_JSON_OBJECT_RE = re.compile(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}")
+
 
 def extract_first_json_object(text: str) -> Optional[dict]:
-    """Extract the first JSON object using regex with a fast-path parse.
-
-    Tries to parse the whole string first; if that fails, searches for the
-    first brace-delimited object and attempts to parse that substring.
-    """
+    """Extract first JSON object from text. Returns dict or None."""
     if not isinstance(text, str):
         return None
 
     s = text.strip()
-
-    # Fast path: try parsing entire string
+    # Fast path
     try:
         obj = json.loads(s)
         return obj if isinstance(obj, dict) else None
     except Exception:
         pass
 
-    # Regex search for a JSON-like object (handles simple nesting patterns)
-    match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", s)
-    if match:
-        try:
-            obj = json.loads(match.group(0))
-            return obj if isinstance(obj, dict) else None
-        except Exception:
-            return None
+    # Fallback: first {...}
+    m = _JSON_OBJECT_RE.search(s)
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group(0))
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        return None
 
-    return None
 
-
-def coerce_to_tag_list(value: Any) -> list[str]:
-    """Coerce various inputs to a list of tag strings.
-    
-    Args:
-        value: Value from parsed JSON (could be list, string, None, etc.)
-        
-    Returns:
-        List of tag strings.
-    """
+def _coerce_to_tag_list(value: Any) -> list[str]:
+    """Always return a list[str] for tags."""
     if isinstance(value, list):
-        return [str(item) for item in value]
-    
+        return [str(x) for x in value]
     if isinstance(value, str):
-        trimmed = value.strip()
-        # Try parsing as JSON array
-        if trimmed.startswith("[") and trimmed.endswith("]"):
+        t = value.strip()
+        if t.startswith("[") and t.endswith("]"):
             try:
-                parsed = json.loads(trimmed)
-                return [str(item) for item in parsed] if isinstance(parsed, list) else []
+                parsed = json.loads(t)
+                return [str(x) for x in parsed] if isinstance(parsed, list) else []
             except Exception:
                 return []
-    
-    return [] if pd.isna(value) else []
+    return []
 
 
-def parse_model_outputs_to_dataframe(
-    raw_outputs: pd.Series,
-    prefix: str = "ai_",
-) -> pd.DataFrame:
-    """Parse model JSON outputs into a structured DataFrame.
-    
-    Args:
-        raw_outputs: Series containing raw JSON strings from model.
-        prefix: Prefix for output column names.
-        
-    Returns:
-        DataFrame with normalized columns.
+def parse_model_outputs_to_dataframe(raw_outputs: pd.Series, prefix: str = "ai_") -> pd.DataFrame:
     """
-    logger.info(f"Parsing {len(raw_outputs)} model outputs")
-    
-    # Extract JSON objects
+    Parse model JSON outputs into a normalized DataFrame with guaranteed columns:
+      <prefix>quality, <prefix>reasoning, <prefix>tags, <prefix>recommendation_email
+    """
+    logger.info("Parsing %d outputs", len(raw_outputs))
+
     parsed = raw_outputs.apply(extract_first_json_object)
-    
-    # Normalize to flat structure
     df = pd.json_normalize(parsed).add_prefix(prefix)
-    
-    # Ensure expected columns exist
-    expected_cols = [
+
+    # Ensure columns
+    want = [
         f"{prefix}{OutputColumn.QUALITY}",
         f"{prefix}{OutputColumn.REASONING}",
         f"{prefix}{OutputColumn.TAGS}",
         f"{prefix}{OutputColumn.RECOMMENDATION}",
     ]
-    
-    for col in expected_cols:
+    for col in want:
         if col not in df.columns:
             df[col] = None
-    
-    # Type coercion and validation
-    quality_col = f"{prefix}{OutputColumn.QUALITY}"
-    df[quality_col] = (
-        df[quality_col]
+
+    # Clean types
+    qcol = f"{prefix}{OutputColumn.QUALITY}"
+    df[qcol] = (
+        df[qcol]
         .astype(str)
         .str.strip()
         .str.lower()
         .where(lambda s: s.isin(["good", "bad"]))
     )
-    
-    # Clean up tags
-    tags_col = f"{prefix}{OutputColumn.TAGS}"
-    df[tags_col] = df[tags_col].apply(coerce_to_tag_list)
-    
-    # Fill text fields
-    df[f"{prefix}{OutputColumn.RECOMMENDATION}"] = (
-        df[f"{prefix}{OutputColumn.RECOMMENDATION}"].fillna("").astype(str)
-    )
-    df[f"{prefix}{OutputColumn.REASONING}"] = df[f"{prefix}{OutputColumn.REASONING}"].fillna("").astype(str)
-    
-    logger.info(f"Successfully parsed {df[quality_col].notna().sum()} valid outputs")
-    
+
+    tcol = f"{prefix}{OutputColumn.TAGS}"
+    df[tcol] = df[tcol].apply(_coerce_to_tag_list)
+
+    rcol = f"{prefix}{OutputColumn.RECOMMENDATION}"
+    df[rcol] = df[rcol].fillna("").astype(str)
+
+    rsn = f"{prefix}{OutputColumn.REASONING}"
+    df[rsn] = df[rsn].fillna("").astype(str)
+
+    logger.info("Parsed %d valid quality labels", int(df[qcol].notna().sum()))
     return df
