@@ -34,11 +34,23 @@ class ProfileAnalysisPipeline:
             # transformers >=4.37 prefers 'token', older versions used 'use_auth_token'
             hub_kwargs["token"] = self.model_config.hf_token
 
+        # Build model_kwargs for quantization
+        model_kwargs = {}
+        if self.model_config.load_in_8bit:
+            model_kwargs["load_in_8bit"] = True
+        elif self.model_config.load_in_4bit:
+            model_kwargs["load_in_4bit"] = True
+        
+        # If using quantization, torch_dtype should be handled automatically by bitsandbytes
+        # Otherwise, use the specified torch_dtype
+        if not (self.model_config.load_in_8bit or self.model_config.load_in_4bit):
+            model_kwargs["torch_dtype"] = _resolve_torch_dtype(self.model_config.torch_dtype)
+
         self._pipe = pipeline(
             task="text-generation",
             model=self.model_config.model_id,
-            torch_dtype=_resolve_torch_dtype(self.model_config.torch_dtype),
             device_map=self.model_config.device_map,
+            model_kwargs=model_kwargs,
             **hub_kwargs,
         )
 

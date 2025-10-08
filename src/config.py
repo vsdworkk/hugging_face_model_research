@@ -17,6 +17,8 @@ class ModelConfig:
     torch_dtype: TorchDtypeStr = "auto"
     device_map: str = "auto"
     is_instruct: bool = False
+    load_in_8bit: bool = False
+    load_in_4bit: bool = False
     hf_token: Optional[str] = None
 
 
