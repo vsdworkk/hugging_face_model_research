@@ -20,7 +20,7 @@ from pathlib import Path
 # Import our modules
 from src.config import AppConfig, ModelConfig, GenerationConfig, DataConfig, EvaluationConfig, load_config
 from src.model.pipeline import ProfileAnalysisPipeline
-from src.processing.batch_processor import ProfileBatchProcessor, MultiModelBatchProcessor
+from src.processing.batch_processor import ProfileBatchProcessor
 from src.processing.json_parser import parse_model_outputs_to_dataframe
 from src.evaluation.metrics import ModelEvaluator
 from src.utils.logger import setup_logging
@@ -42,7 +42,7 @@ config_path = Path('/Workspace/Repos/vthedataeng@gmail.com/wfa_profile_analyzer/
 config = load_config(config_path)
 
 # Get enabled models
-enabled_models = config.get_enabled_models()
+enabled_models = config.enabled_models
 
 print("✅ Configuration loaded from YAML!")
 print(f"\n📊 Enabled Models: {len(enabled_models)}")
@@ -72,17 +72,17 @@ print("\n" + "="*70)
 
 # COMMAND ----------
 
-# CELL 5: Initialize Multi-Model Processor
+# CELL 5: Initialize Processor
 
-print("🔄 Initializing Multi-Model Processor...")
+print("🔄 Initializing Processor...")
 
-# Create multi-model processor
-multi_processor = MultiModelBatchProcessor(config)
+# Create unified processor
+processor = ProfileBatchProcessor(config)
 
 # Display summary
-print("\n" + multi_processor.get_model_summary())
+print("\n" + processor.get_model_summary())
 
-print("✅ Multi-Model Processor ready!")
+print("✅ Processor ready!")
 
 # COMMAND ----------
 
@@ -132,7 +132,7 @@ sample_data = pd.DataFrame({
 print(f"📊 Processing {len(sample_data)} profiles through {len(enabled_models)} model(s)...")
 
 # Process through all enabled models
-result_df = multi_processor.process_dataframe(
+result_df = processor.process_dataframe(
     sample_data,
     input_column='about_me',
     parse_outputs=True  # This will create separate columns for each model's outputs
@@ -155,32 +155,11 @@ display(result_df)
 
 # COMMAND ----------
 
-# CELL 9: Compare Model Outputs (if multiple models enabled)
+# CELL 9: Model Evaluation Metrics
 
-if len(enabled_models) > 1:
-    print("\n" + "="*70)
-    print("MODEL COMPARISON")
-    print("="*70)
-    
-    # Get flag columns from each model
-    flag_columns = [col for col in result_df.columns if col.endswith('_flag')]
-    
-    if flag_columns:
-        print("\nFlag Predictions by Model:")
-        comparison_df = result_df[['about_me'] + flag_columns].copy()
-        display(comparison_df)
-        
-        # Count agreement between models
-        if len(flag_columns) >= 2:
-            print("\n📊 Model Agreement Analysis:")
-            for i, row_idx in enumerate(result_df.index):
-                flags = [result_df.loc[row_idx, col] for col in flag_columns]
-                unique_flags = set([f for f in flags if pd.notna(f)])
-                agreement = len(unique_flags) <= 1  # All models agree if only 1 unique value
-                status = "✅ AGREE" if agreement else "⚠️  DISAGREE"
-                print(f"   Profile {i+1}: {status} - Flags: {flags}")
-else:
-    print("\n💡 Only one model enabled. Enable more models in config.yaml to see comparisons!")
+from scripts.evaluate_results import evaluate_multi_model_dataframe
+
+evaluate_multi_model_dataframe(result_df, config, enabled_models)
 
 # COMMAND ----------
 
@@ -210,18 +189,18 @@ print(f"✅ Used {len(enabled_models)} model(s)")
 
 for model in enabled_models:
     output_col = f"about_me_processed_{model.name}"
-    flag_col = f"ai_{model.name}_flag"
+    quality_col = f"ai_{model.name}_quality"
     
     if output_col in result_df.columns:
         non_null = result_df[output_col].notna().sum()
         print(f"\n📊 Model: {model.name}")
         print(f"   Processed: {non_null}/{len(result_df)} profiles")
         
-        if flag_col in result_df.columns:
-            flag_counts = result_df[flag_col].value_counts()
-            print(f"   Flag distribution:")
-            for flag, count in flag_counts.items():
-                print(f"      {flag}: {count}")
+        if quality_col in result_df.columns:
+            quality_counts = result_df[quality_col].value_counts()
+            print(f"   Quality distribution:")
+            for quality, count in quality_counts.items():
+                print(f"      {quality}: {count}")
 
 print("\n" + "="*70)
 print("🎉 ALL DONE!")

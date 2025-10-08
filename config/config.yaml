@@ -9,13 +9,13 @@ models:
     device_map: "auto"
   
   - name: "llama_8b"
-    enabled: false
+    enabled: true
     model_id: "meta-llama/Llama-3-8B-Instruct"
     torch_dtype: "auto"
     device_map: "auto"
   
   - name: "mistral_7b"
-    enabled: false
+    enabled: true
     model_id: "mistralai/Mistral-7B-Instruct-v0.2"
     torch_dtype: "auto"
     device_map: "auto"

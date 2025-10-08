@@ -141,8 +141,6 @@ def calculate_metrics(
         logger.warning("No valid label pairs found for evaluation")
         return ClassificationMetrics(0, 0, 0, 0, 0)
     
-    logger.info(f"Evaluating {len(eval_df)} samples with complete labels")
-    
     # Calculate confusion matrix components
     tp = int(((eval_df["y_true"] == 1) & (eval_df["y_pred"] == 1)).sum())
     tn = int(((eval_df["y_true"] == 0) & (eval_df["y_pred"] == 0)).sum())
@@ -189,8 +187,6 @@ class ModelEvaluator:
         Returns:
             Tuple of (wide_df with binary labels, metrics object).
         """
-        logger.info("Starting evaluation")
-        
         # Add binary label columns
         wide_df = df.copy()
         wide_df["y_pred"] = df[self.ai_quality_col].apply(label_to_binary)
@@ -201,13 +197,6 @@ class ModelEvaluator:
             y_true=wide_df["y_true"],
             y_pred=wide_df["y_pred"],
         )
-        
-        # Log results
-        logger.info(f"Evaluation complete: {metrics.total_samples} samples")
-        logger.info(f"Accuracy: {metrics.accuracy:.3f}")
-        logger.info(f"Precision: {metrics.precision:.3f}")
-        logger.info(f"Recall: {metrics.recall:.3f}")
-        logger.info(f"F1 Score: {metrics.f1_score:.3f}")
         
         # Save if requested
         if save_path:

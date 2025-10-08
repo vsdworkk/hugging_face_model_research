@@ -1,75 +1,43 @@
 """Robust JSON parsing utilities for LLM outputs."""
 
 import json
+import re
 import logging
 from typing import Any, Optional
 
 import pandas as pd
+from ..constants import OutputColumn
 
 logger = logging.getLogger(__name__)
 
 
 def extract_first_json_object(text: str) -> Optional[dict]:
-    """Extract the first valid JSON object from potentially malformed text.
-    
-    Handles:
-    - Text before/after JSON
-    - Nested braces
-    - Escaped quotes
-    - Multiple JSON objects (returns first)
-    
-    Args:
-        text: Raw text potentially containing JSON.
-        
-    Returns:
-        Parsed dict if found, None otherwise.
+    """Extract the first JSON object using regex with a fast-path parse.
+
+    Tries to parse the whole string first; if that fails, searches for the
+    first brace-delimited object and attempts to parse that substring.
     """
     if not isinstance(text, str):
         return None
-    
-    text = text.strip()
-    
+
+    s = text.strip()
+
     # Fast path: try parsing entire string
     try:
-        obj = json.loads(text)
+        obj = json.loads(s)
         return obj if isinstance(obj, dict) else None
     except Exception:
         pass
-    
-    # Robust extraction: find balanced braces
-    start = text.find("{")
-    while start != -1:
-        depth = 0
-        in_string = False
-        escaped = False
-        
-        for i in range(start, len(text)):
-            char = text[i]
-            
-            if in_string:
-                if escaped:
-                    escaped = False
-                elif char == "\\":
-                    escaped = True
-                elif char == '"':
-                    in_string = False
-            else:
-                if char == '"':
-                    in_string = True
-                elif char == "{":
-                    depth += 1
-                elif char == "}":
-                    depth -= 1
-                    if depth == 0:
-                        # Found balanced JSON, try to parse
-                        try:
-                            return json.loads(text[start : i + 1])
-                        except Exception:
-                            break  # Try next '{'
-        
-        # Move to next potential start
-        start = text.find("{", start + 1)
-    
+
+    # Regex search for a JSON-like object (handles simple nesting patterns)
+    match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", s)
+    if match:
+        try:
+            obj = json.loads(match.group(0))
+            return obj if isinstance(obj, dict) else None
+        except Exception:
+            return None
+
     return None
 
 
@@ -121,10 +89,10 @@ def parse_model_outputs_to_dataframe(
     
     # Ensure expected columns exist
     expected_cols = [
-        f"{prefix}quality",
-        f"{prefix}reasoning",
-        f"{prefix}tags",
-        f"{prefix}recommendation_email",
+        f"{prefix}{OutputColumn.QUALITY}",
+        f"{prefix}{OutputColumn.REASONING}",
+        f"{prefix}{OutputColumn.TAGS}",
+        f"{prefix}{OutputColumn.RECOMMENDATION}",
     ]
     
     for col in expected_cols:
@@ -132,7 +100,7 @@ def parse_model_outputs_to_dataframe(
             df[col] = None
     
     # Type coercion and validation
-    quality_col = f"{prefix}quality"
+    quality_col = f"{prefix}{OutputColumn.QUALITY}"
     df[quality_col] = (
         df[quality_col]
         .astype(str)
@@ -142,14 +110,14 @@ def parse_model_outputs_to_dataframe(
     )
     
     # Clean up tags
-    tags_col = f"{prefix}tags"
+    tags_col = f"{prefix}{OutputColumn.TAGS}"
     df[tags_col] = df[tags_col].apply(coerce_to_tag_list)
     
     # Fill text fields
-    df[f"{prefix}recommendation_email"] = (
-        df[f"{prefix}recommendation_email"].fillna("").astype(str)
+    df[f"{prefix}{OutputColumn.RECOMMENDATION}"] = (
+        df[f"{prefix}{OutputColumn.RECOMMENDATION}"].fillna("").astype(str)
     )
-    df[f"{prefix}reasoning"] = df[f"{prefix}reasoning"].fillna("").astype(str)
+    df[f"{prefix}{OutputColumn.REASONING}"] = df[f"{prefix}{OutputColumn.REASONING}"].fillna("").astype(str)
     
     logger.info(f"Successfully parsed {df[quality_col].notna().sum()} valid outputs")
     

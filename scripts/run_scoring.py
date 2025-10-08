@@ -6,8 +6,7 @@ import logging
 from pathlib import Path
 
 from src.config import load_config
-from src.model.pipeline import ProfileAnalysisPipeline
-from src.processing.batch_processor import ProfileBatchProcessor, MultiModelBatchProcessor
+from src.processing.batch_processor import ProfileBatchProcessor
 from src.utils.logger import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -69,52 +68,17 @@ def main():
     config = load_config(args.config)
     logger.info(f"Loaded config from {args.config}")
     
-    # Check if multi-model processing is requested
-    enabled_models = config.get_enabled_models()
+    # Unified processing through all enabled models
+    processor = ProfileBatchProcessor(config)
+    logger.info(processor.get_model_summary())
     
-    if args.multi_model or len(enabled_models) > 1:
-        # Multi-model processing
-        logger.info(f"Using multi-model processing with {len(enabled_models)} model(s)")
-        
-        # Create multi-model processor
-        processor = MultiModelBatchProcessor(config)
-        logger.info(processor.get_model_summary())
-        
-        # Process data
-        processor.process_csv(
-            input_path=args.input,
-            output_path=args.output,
-            limit=args.limit,
-            parse_outputs=not args.no_parse,
-        )
-    else:
-        # Single model processing (backward compatible)
-        logger.info("Using single-model processing")
-        model_config = enabled_models[0]
-        
-        # Initialize pipeline
-        pipeline = ProfileAnalysisPipeline(
-            model_config=model_config,
-            generation_config=config.generation,
-        )
-        pipeline.initialize()
-        
-        # Test pipeline
-        logger.info("Running pipeline test")
-        pipeline.test_generation()
-        
-        # Create processor
-        processor = ProfileBatchProcessor(pipeline, config)
-        
-        # Process data
-        processor.process_csv(
-            input_path=args.input,
-            output_path=args.output,
-            limit=args.limit,
-        )
-        
-        # Cleanup
-        pipeline.cleanup()
+    # Process data
+    processor.process_csv(
+        input_path=args.input,
+        output_path=args.output,
+        limit=args.limit,
+        parse_outputs=not args.no_parse,
+    )
     
     logger.info("Scoring complete!")
 
