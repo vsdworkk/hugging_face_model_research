@@ -30,10 +30,8 @@ After review, output a **single JSON object** with the following structure. Do n
   "quality": "good" | "bad",
   "reasoning": "One sentence summary of why the quality is bad. Leave empty if quality is good.",
   "tags": ["personal_info", "inappropriate_content", "grammar"],
-  "recommendation_email": "Hi,\\n\\nWe've reviewed your 'About Me' section and noticed a few areas that could be improved to help you stand out more confidently to potential employers. [Concise recommendation...]\\n\\nWarm regards,\\nRecruitment Team"
-  // Only include this field if quality is "bad". Leave it out entirely if quality is "good".
-}
-""".strip()
+  "recommendation_email": "Hi,\\n\\nWe've reviewed your 'About Me' section and noticed a few areas that could be improved to help you stand out more confidently to potential employers. [Concise recommendation...]\\n\\nWarm regards,\\nRecruitment Team"}""".strip()
+
 
 
 def build_profile_analysis_messages(about_text: str) -> list[dict[str, str]]:

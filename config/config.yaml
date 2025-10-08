@@ -2,27 +2,27 @@
 # Supports up to 3 models with enable/disable flags
 
 models:
-  - name: "llama_3b"
-    enabled: true
+  - name: "llama_3b_Instruct"
+    enabled: false
     model_id: "meta-llama/Llama-3.2-3B-Instruct"
     torch_dtype: "auto"
     device_map: "auto"
-
-  - name: "llama_8b"
+  
+  - name: "llama_1b_Instruct"
     enabled: true
-    model_id: "meta-llama/Llama-3-8B-Instruct"
+    model_id: "meta-llama/Llama-3.2-1B-Instruct"
     torch_dtype: "auto"
     device_map: "auto"
-
-  - name: "mistral_7b"
+  
+  - name: "gemma-3-1b-it"
     enabled: true
-    model_id: "mistralai/Mistral-7B-Instruct-v0.2"
+    model_id: "google/gemma-3-1b-it"
     torch_dtype: "auto"
     device_map: "auto"
 
 # IMPORTANT: Do NOT put secrets here.
 # Provide HF token via Databricks secret or the 'hf_token' widget (sets HF_TOKEN env).
-hf_token:
+#hf_token:
 
 generation:
   batch_size: 10

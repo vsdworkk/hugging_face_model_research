@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Literal
+import os
 
 import yaml
 
@@ -77,7 +78,8 @@ class AppConfig:
 
         models_data = config_dict.get("models", [])
         models = [ModelConfig(**m) for m in models_data]
-        global_hf_token = config_dict.get("hf_token")
+        # Prefer explicit token in YAML; fall back to HF_TOKEN env var if not provided
+        global_hf_token = config_dict.get("hf_token") or os.getenv("HF_TOKEN")
 
         for model in models:
             if model.hf_token is None:
