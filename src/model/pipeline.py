@@ -74,6 +74,10 @@ class ProfileAnalysisPipeline:
         if tok.pad_token_id is None:
             tok.pad_token = tok.eos_token or tok.unk_token
         tok.padding_side = "left"
+        
+        # Print memory footprint after model initialization
+        footprint_gb = self._pipe.model.get_memory_footprint() / (1024 ** 3)
+        print(f"Model memory footprint: {footprint_gb:.2f} GB")
 
     def cleanup(self) -> None:
         if self._pipe is not None:
