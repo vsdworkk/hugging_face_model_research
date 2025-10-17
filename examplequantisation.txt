@@ -1,0 +1,28 @@
+import torch
+from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+quantization_config_4bit = BitsAndBytesConfig(
+    load_in_4bit=True,
+  bnb_4bit_quant_type="nf4",
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_compute_dtype=torch.bfloat16
+ )
+
+quantization_config_8bit = BitsAndBytesConfig(load_in_8bit=True)
+
+
+
+
+model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    quantization_config=quantization_config
+)
+
+text = "Hello my name is"
+device = "cuda:0"
+
+inputs = tokenizer(text, return_tensors="pt").to(device)
+
+outputs = model.generate(**inputs, max_new_tokens=20)
+
+print(tokenizer.decode(outputs[0]))

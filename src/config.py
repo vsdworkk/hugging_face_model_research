@@ -7,6 +7,7 @@ import os
 import yaml
 
 TorchDtypeStr = Literal["auto", "float16", "bfloat16", "float32"]
+QuantizationStr = Literal["none", "8bit", "4bit"]
 
 
 @dataclass
@@ -18,6 +19,8 @@ class ModelConfig:
     device_map: str = "auto"
     is_instruct: bool = False
     hf_token: Optional[str] = None
+    # Quantization: "none" | "8bit" | "4bit" (fixed 4-bit settings in code)
+    quantization: QuantizationStr = "none"
 
 
 @dataclass
@@ -71,6 +74,11 @@ class AppConfig:
         for model in enabled:
             if not (model.model_id and model.model_id.strip()):
                 raise ValueError(f"Model '{model.name}' must have a valid model_id")
+            if model.quantization not in ("none", "8bit", "4bit"):
+                raise ValueError(
+                    f"Model '{model.name}' has invalid quantization='{model.quantization}'. "
+                    "Allowed values are: 'none', '8bit', '4bit'."
+                )
 
     @classmethod
     def from_yaml(cls, config_path: Path) -> "AppConfig":

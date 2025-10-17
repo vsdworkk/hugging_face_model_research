@@ -8,6 +8,7 @@ models:
     torch_dtype: "auto"
     device_map: "auto"
     is_instruct: true
+    quantization: "none"  # "none" | "8bit" | "4bit"
   
   - name: "llama_1b_Instruct"
     enabled: true
@@ -15,6 +16,7 @@ models:
     torch_dtype: "auto"
     device_map: "auto"
     is_instruct: true
+    quantization: "none"
   
   - name: "gemma-3-1b-it"
     enabled: true
@@ -22,6 +24,7 @@ models:
     torch_dtype: "auto"
     device_map: "auto"
     is_instruct: true
+    quantization: "none"
 
 # IMPORTANT: Do NOT put secrets here.
 # Provide HF token via Databricks secret or the 'hf_token' widget (sets HF_TOKEN env).

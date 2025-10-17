@@ -34,13 +34,41 @@ class ProfileAnalysisPipeline:
             # transformers >=4.37 prefers 'token', older versions used 'use_auth_token'
             hub_kwargs["token"] = self.model_config.hf_token
 
-        self._pipe = pipeline(
-            task="text-generation",
-            model=self.model_config.model_id,
-            torch_dtype=_resolve_torch_dtype(self.model_config.torch_dtype),
-            device_map=self.model_config.device_map,
-            **hub_kwargs,
-        )
+        quantization = getattr(self.model_config, "quantization", "none")
+
+        if quantization == "none":
+            # Standard load without quantization
+            self._pipe = pipeline(
+                task="text-generation",
+                model=self.model_config.model_id,
+                torch_dtype=_resolve_torch_dtype(self.model_config.torch_dtype),
+                device_map=self.model_config.device_map,
+                **hub_kwargs,
+            )
+        else:
+            # Quantized load using bitsandbytes via transformers BitsAndBytesConfig
+            from transformers import BitsAndBytesConfig
+
+            if quantization == "8bit":
+                qcfg = BitsAndBytesConfig(load_in_8bit=True)
+            elif quantization == "4bit":
+                qcfg = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_compute_dtype=torch.bfloat16,
+                )
+            else:
+                raise ValueError(f"Unsupported quantization option: {quantization}")
+
+            # For quantized models, keep top-level torch_dtype as 'auto' and rely on qcfg compute dtype
+            self._pipe = pipeline(
+                model=self.model_config.model_id,
+                torch_dtype="auto",
+                device_map=self.model_config.device_map,
+                model_kwargs={"quantization_config": qcfg},
+                **hub_kwargs,
+            )
 
         tok = self._pipe.tokenizer
         if tok.pad_token_id is None:
