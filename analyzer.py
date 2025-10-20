@@ -98,6 +98,7 @@ def analyze_profiles(df: pd.DataFrame,
                     batch_size: int = 10,
                     max_new_tokens: int = 2000) -> pd.DataFrame:
     """Run profile analysis with multiple models."""
+    import os
     results = df.copy()
     
     for model_cfg in model_configs:
@@ -107,24 +108,34 @@ def analyze_profiles(df: pd.DataFrame,
         model_name = model_cfg['name']
         print(f"\nProcessing with {model_name}: {model_cfg['model_id']}")
         
-        # Setup pipeline
+        # Get HF token from model config or environment
+        hf_token = model_cfg.get('hf_token') or os.getenv('HF_TOKEN')
+        
+        # Setup hub_kwargs for token
+        hub_kwargs = {}
+        if hf_token:
+            hub_kwargs["token"] = hf_token
+        
+        # Setup quantization
         model_kwargs = {}
         quantization = model_cfg.get('quantization', 'none')
         torch_dtype = model_cfg.get('torch_dtype', 'auto')
-
+        
         if quantization != 'none':
             model_kwargs['quantization_config'] = get_quantization_config(quantization)
-            # IMPORTANT: Force torch_dtype to 'auto' when using quantization
             torch_dtype = 'auto'
-
+        
+        # Create pipeline
         pipe = pipeline(
             "text-generation",
             model=model_cfg['model_id'],
             device_map=model_cfg.get('device_map', 'auto'),
-            torch_dtype=torch_dtype,  # Use the potentially modified dtype
+            torch_dtype=torch_dtype,
             model_kwargs=model_kwargs,
-            token=model_cfg.get('hf_token')
+            **hub_kwargs
         )
+        
+        # Rest of the function remains the same...
         
         # Set padding
         if pipe.tokenizer.pad_token_id is None:
