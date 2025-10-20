@@ -93,7 +93,7 @@ def get_quantization_config(quantization: str):
 
 
 def analyze_profiles(df: pd.DataFrame, 
-                    model_configs: List[Dict], 
+                    config: dict,  # Changed from model_configs
                     input_col: str = 'about_me',
                     batch_size: int = 10,
                     max_new_tokens: int = 2000) -> pd.DataFrame:
@@ -101,15 +101,18 @@ def analyze_profiles(df: pd.DataFrame,
     import os
     results = df.copy()
     
-    for model_cfg in model_configs:
+    # Get global HF token from config root
+    global_hf_token = config.get('hf_token')
+    
+    for model_cfg in config['models']:  # Now iterate through config['models']
         if not model_cfg.get('enabled', True):
             continue
             
         model_name = model_cfg['name']
         print(f"\nProcessing with {model_name}: {model_cfg['model_id']}")
         
-        # Get HF token from model config or environment
-        hf_token = model_cfg.get('hf_token') or os.getenv('HF_TOKEN')
+        # Get HF token: 1) model-specific, 2) global from config, 3) environment
+        hf_token = model_cfg.get('hf_token') or global_hf_token or os.getenv('HF_TOKEN')
         
         # Setup hub_kwargs for token
         hub_kwargs = {}
