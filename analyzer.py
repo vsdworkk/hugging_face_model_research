@@ -173,26 +173,16 @@ def generate_prompts(texts: List[str], model_config: Dict[str, Any], tokenizer: 
 
 
 def process_in_batches(
-    pipe: Pipeline, 
-    prompts: List[str], 
-    batch_size: int, 
+    pipe: Pipeline,
+    prompts: List[str],
+    batch_size: int,
     max_new_tokens: int
 ) -> List[str]:
     """
     Process prompts in batches through the model pipeline.
-    
-    Args:
-        pipe: Model pipeline
-        prompts: List of prompts to process
-        batch_size: Number of prompts per batch
-        max_new_tokens: Maximum tokens to generate
-        
-    Returns:
-        List of generated texts
     """
     outputs = []
-    
-    for i in tqdm(range(0, len(prompts), batch_size), desc="Processing batches"):
+    for i in range(0, len(prompts), batch_size):
         batch = prompts[i:i + batch_size]
         batch_outputs = pipe(
             batch,
@@ -200,12 +190,13 @@ def process_in_batches(
             do_sample=False,
             return_full_text=False
         )
-        
-        # Extract generated text from each output
         for output in batch_outputs:
-            outputs.append(output[0]['generated_text'])
-    
+            if isinstance(output, list) and output and isinstance(output[0], dict):
+                outputs.append(output[0].get('generated_text', ''))
+            elif isinstance(output, dict):
+                outputs.append(output.get('generated_text', ''))
     return outputs
+
 
 
 def add_model_results_to_dataframe(
