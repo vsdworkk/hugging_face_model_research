@@ -1,6 +1,9 @@
 
-# Global token for all models
+# Hugging Face Token Configuration
+# Option 1 (Recommended): Use .env file with HF_TOKEN=your_token_here
+# Option 2: Uncomment and set token here (not recommended for security)
 # hf_token: "your_token_here"
+# Option 3: Set per model with hf_token field in model config
 
 # Simplified configuration for profile analyzer
 models:
@@ -35,3 +38,9 @@ max_new_tokens: 2000
 # Data columns
 input_column: "about_me"
 human_label_column: "Human_flag"
+
+# Paths
+paths:
+  input_data: "about_me_quality_dataset.csv"
+  results_output: "profile_analysis_results.csv"
+  metrics_output: "model_metrics_{timestamp}.csv"
