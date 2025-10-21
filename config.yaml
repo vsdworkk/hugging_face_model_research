@@ -42,5 +42,5 @@ human_label_column: "Human_flag"
 # Paths
 paths:
   input_data: "about_me_quality_dataset.csv"
-  results_output: "profile_analysis_results.csv"
+  results_output: "profile_analysis_results_{timestamp}.csv"
   metrics_output: "model_metrics_{timestamp}.csv"
