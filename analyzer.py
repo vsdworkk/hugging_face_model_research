@@ -1,107 +1,84 @@
-"""Simplified profile analyzer for data science workflows."""
+"""Profile analyzer for evaluating data science job seeker profiles."""
 import json
 import re
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any, Tuple
+import os
+
 import torch
-from transformers import pipeline
+from transformers import pipeline, Pipeline, BitsAndBytesConfig
 import pandas as pd
 from tqdm import tqdm
 import yaml
 
-# System prompt for profile analysis
-SYSTEM_PROMPT = """You are an expert AI Recruitment and Profile Quality Analyst.
-
-<task>
-Review the "about me" sections from job seeker profiles and rate them as either "good" or "bad" quality.
-</task>
-
-<scoring_criteria>
-A response should be scored as "bad" if ANY of the following conditions are met:
-
-1. **Contains Personal Information**
-   - Includes names, addresses, phone numbers, email addresses, or any other demographic data that could bias the employer.
-
-2. **Includes Inappropriate Content**
-   - Contains offensive, discriminatory, violent, or sexually explicit language or references.
-
-3. **Poor Grammar or Language Quality**
-   - Contains multiple grammatical errors, spelling mistakes, or awkward phrasing that affects clarity or professionalism.
-</scoring_criteria>
-
-<output_instructions>
-You MUST respond with ONLY a valid JSON object. Do not include any text before or after the JSON.
-Do not include markdown formatting, code blocks, or any other formatting.
-Output ONLY the raw JSON object starting with { and ending with }
-</output_instructions>
-
-<output_format>
-{
-  "quality": "good" | "bad",
-  "reasoning": "One sentence summary of why the quality is bad. Leave empty string if quality is good.",
-  "tags": ["personal_info", "inappropriate_content", "grammar"],
-  "improvement_points": ["point 1", "point 2", "point 3"]
-}
-</output_format>
-
-<example_output>
-{
-  "quality": "bad",
-  "reasoning": "Contains personal phone number and grammatical errors that affect professionalism.",
-  "tags": ["personal_info", "grammar"],
-  "improvement_points": [
-    "Remove personal contact details (phone, address) - these are shared later in the process",
-    "Fix grammatical errors and typos throughout the text",
-    "Add specific examples of achievements rather than generic statements"
-  ]
-}
-</example_output>
-
-<important_notes>
-- For "good" quality profiles, leave improvement_points as empty array []
-- Each improvement point should be concise and actionable
-- Limit to maximum 3 most important improvement points
-- Output ONLY the JSON object, nothing else
-</important_notes>""".strip()
+from prompt import SYSTEM_PROMPT, generate_prompt
 
 
-def load_config(path: str) -> dict:
-    """Load configuration from YAML file."""
+def load_config(path: str) -> Dict[str, Any]:
+    """
+    Load configuration from YAML file.
+    
+    Args:
+        path: Path to the YAML configuration file
+        
+    Returns:
+        Configuration dictionary
+    """
     with open(path, 'r') as f:
         return yaml.safe_load(f)
 
 
-def parse_json_output(text: str) -> Optional[dict]:
-    """Extract JSON from model output."""
+def parse_json_output(text: str) -> Optional[Dict[str, Any]]:
+    """
+    Extract JSON object from model output text.
+    
+    Tries multiple strategies:
+    1. Direct JSON parse
+    2. Regex extraction of JSON-like content
+    
+    Args:
+        text: Raw model output text
+        
+    Returns:
+        Parsed JSON dictionary or None if parsing fails
+    """
     if not isinstance(text, str):
         return None
     
-    # Try direct parse
+    # Try direct parse first
     try:
         obj = json.loads(text.strip())
         return obj if isinstance(obj, dict) else None
-    except:
+    except json.JSONDecodeError:
         pass
     
-    # Try to find JSON object in text
+    # Try to find JSON object using regex
     match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text)
     if match:
         try:
             obj = json.loads(match.group())
             return obj if isinstance(obj, dict) else None
-        except:
+        except json.JSONDecodeError:
             pass
     
     return None
 
 
-def get_quantization_config(quantization: str):
-    """Get quantization config if needed."""
+def get_quantization_config(quantization: str) -> Optional[BitsAndBytesConfig]:
+    """
+    Get quantization configuration based on string identifier.
+    
+    Args:
+        quantization: Quantization type ('none', '8bit', '4bit')
+        
+    Returns:
+        BitsAndBytesConfig object or None
+        
+    Raises:
+        ValueError: If quantization type is unknown
+    """
     if quantization == "none":
         return None
-    
-    from transformers import BitsAndBytesConfig
-    
-    if quantization == "8bit":
+    elif quantization == "8bit":
         return BitsAndBytesConfig(load_in_8bit=True)
     elif quantization == "4bit":
         return BitsAndBytesConfig(
@@ -111,119 +88,254 @@ def get_quantization_config(quantization: str):
             bnb_4bit_compute_dtype=torch.bfloat16
         )
     else:
-        raise ValueError(f"Unknown quantization: {quantization}")
+        raise ValueError(f"Unknown quantization type: {quantization}")
 
 
-def analyze_profiles(df: pd.DataFrame, 
-                    config: dict,  # Changed from model_configs
-                    input_col: str = 'about_me',
-                    batch_size: int = 10,
-                    max_new_tokens: int = 2000) -> pd.DataFrame:
-    """Run profile analysis with multiple models."""
-    import os
-    results = df.copy()
+def get_hf_token(model_config: Dict[str, Any], global_token: Optional[str] = None) -> Optional[str]:
+    """
+    Resolve Hugging Face token from multiple sources.
     
-    # Get global HF token from config root
-    global_hf_token = config.get('hf_token')
+    Priority order:
+    1. Model-specific token
+    2. Global token from config
+    3. Environment variable HF_TOKEN
     
-    for model_cfg in config['models']:  # Now iterate through config['models']
-        if not model_cfg.get('enabled', True):
-            continue
-            
-        model_name = model_cfg['name']
-        print(f"\nProcessing with {model_name}: {model_cfg['model_id']}")
+    Args:
+        model_config: Model configuration dictionary
+        global_token: Global token from config root
         
-        # Get HF token: 1) model-specific, 2) global from config, 3) environment
-        hf_token = model_cfg.get('hf_token') or global_hf_token or os.getenv('HF_TOKEN')
+    Returns:
+        Resolved token or None
+    """
+    return model_config.get('hf_token') or global_token or os.getenv('HF_TOKEN')
+
+
+def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = None) -> Pipeline:
+    """
+    Load and configure a model pipeline.
+    
+    Args:
+        model_config: Model configuration dictionary
+        hf_token: Hugging Face token for authentication
         
-        # Setup hub_kwargs for token
-        hub_kwargs = {}
-        if hf_token:
-            hub_kwargs["token"] = hf_token
+    Returns:
+        Configured text generation pipeline
+    """
+    # Setup hub kwargs for authentication
+    hub_kwargs = {"token": hf_token} if hf_token else {}
+    
+    # Setup quantization
+    model_kwargs = {}
+    quantization = model_config.get('quantization', 'none')
+    torch_dtype = model_config.get('torch_dtype', 'auto')
+    
+    if quantization != 'none':
+        model_kwargs['quantization_config'] = get_quantization_config(quantization)
+        # Force auto dtype when using quantization
+        torch_dtype = 'auto'
+    
+    # Create pipeline
+    return pipeline(
+        "text-generation",
+        model=model_config['model_id'],
+        device_map=model_config.get('device_map', 'auto'),
+        torch_dtype=torch_dtype,
+        model_kwargs=model_kwargs,
+        **hub_kwargs
+    )
+
+
+def prepare_tokenizer(pipe: Pipeline) -> None:
+    """
+    Configure tokenizer settings for consistent behavior.
+    
+    Args:
+        pipe: The pipeline to configure
+    """
+    if pipe.tokenizer.pad_token_id is None:
+        pipe.tokenizer.pad_token = pipe.tokenizer.eos_token
+    pipe.tokenizer.padding_side = 'left'
+
+
+def generate_prompts(texts: List[str], model_config: Dict[str, Any], tokenizer: Any) -> List[str]:
+    """
+    Generate prompts for all texts using the model configuration.
+    
+    Args:
+        texts: List of profile texts
+        model_config: Model configuration
+        tokenizer: Model tokenizer
         
-        # Setup quantization
-        model_kwargs = {}
-        quantization = model_cfg.get('quantization', 'none')
-        torch_dtype = model_cfg.get('torch_dtype', 'auto')
+    Returns:
+        List of formatted prompts
+    """
+    return [generate_prompt(text, model_config, tokenizer) for text in texts]
+
+
+def process_in_batches(
+    pipe: Pipeline, 
+    prompts: List[str], 
+    batch_size: int, 
+    max_new_tokens: int
+) -> List[str]:
+    """
+    Process prompts in batches through the model pipeline.
+    
+    Args:
+        pipe: Model pipeline
+        prompts: List of prompts to process
+        batch_size: Number of prompts per batch
+        max_new_tokens: Maximum tokens to generate
         
-        if quantization != 'none':
-            model_kwargs['quantization_config'] = get_quantization_config(quantization)
-            torch_dtype = 'auto'
-        
-        # Create pipeline
-        pipe = pipeline(
-            "text-generation",
-            model=model_cfg['model_id'],
-            device_map=model_cfg.get('device_map', 'auto'),
-            torch_dtype=torch_dtype,
-            model_kwargs=model_kwargs,
-            **hub_kwargs
+    Returns:
+        List of generated texts
+    """
+    outputs = []
+    
+    for i in tqdm(range(0, len(prompts), batch_size), desc="Processing batches"):
+        batch = prompts[i:i + batch_size]
+        batch_outputs = pipe(
+            batch,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            return_full_text=False
         )
         
-        # Rest of the function remains the same...
+        # Extract generated text from each output
+        for output in batch_outputs:
+            outputs.append(output[0]['generated_text'])
+    
+    return outputs
+
+
+def add_model_results_to_dataframe(
+    df: pd.DataFrame,
+    model_name: str,
+    raw_outputs: List[str],
+    parsed_outputs: List[Optional[Dict[str, Any]]]
+) -> None:
+    """
+    Add model results as new columns to the dataframe.
+    
+    Args:
+        df: DataFrame to modify (in-place)
+        model_name: Name prefix for columns
+        raw_outputs: Raw model outputs
+        parsed_outputs: Parsed JSON outputs
+    """
+    # Add raw output column
+    df[f'{model_name}_raw'] = raw_outputs
+    
+    # Add parsed fields
+    df[f'{model_name}_quality'] = [
+        p.get('quality', '') if p else '' for p in parsed_outputs
+    ]
+    df[f'{model_name}_reasoning'] = [
+        p.get('reasoning', '') if p else '' for p in parsed_outputs
+    ]
+    df[f'{model_name}_tags'] = [
+        p.get('tags', []) if p else [] for p in parsed_outputs
+    ]
+    df[f'{model_name}_improvement_points'] = [
+        p.get('improvement_points', []) if p else [] for p in parsed_outputs
+    ]
+
+
+def analyze_single_model(
+    df: pd.DataFrame,
+    model_config: Dict[str, Any],
+    hf_token: Optional[str],
+    input_col: str,
+    batch_size: int,
+    max_new_tokens: int
+) -> None:
+    """
+    Analyze profiles using a single model.
+    
+    Args:
+        df: DataFrame with profiles (modified in-place)
+        model_config: Model configuration
+        hf_token: Hugging Face token
+        input_col: Column name containing profile text
+        batch_size: Batch size for processing
+        max_new_tokens: Maximum tokens to generate
+    """
+    model_name = model_config['name']
+    print(f"\nProcessing with {model_name}: {model_config['model_id']}")
+    
+    # Load model pipeline
+    pipe = load_model_pipeline(model_config, hf_token)
+    prepare_tokenizer(pipe)
+    
+    # Print memory footprint
+    footprint_gb = pipe.model.get_memory_footprint() / (1024 ** 3)
+    print(f"Model memory footprint: {footprint_gb:.2f} GB")
+    
+    # Prepare texts and prompts
+    texts = df[input_col].fillna('').astype(str).tolist()
+    prompts = generate_prompts(texts, model_config, pipe.tokenizer)
+    
+    # Generate outputs
+    raw_outputs = process_in_batches(pipe, prompts, batch_size, max_new_tokens)
+    
+    # Parse outputs
+    parsed_outputs = [parse_json_output(out) for out in raw_outputs]
+    
+    # Add results to dataframe
+    add_model_results_to_dataframe(df, model_name, raw_outputs, parsed_outputs)
+    
+    # Cleanup
+    del pipe
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def analyze_profiles(
+    df: pd.DataFrame, 
+    config: Dict[str, Any],
+    input_col: str = 'about_me',
+    batch_size: int = 10,
+    max_new_tokens: int = 2000
+) -> pd.DataFrame:
+    """
+    Analyze profiles using multiple models specified in configuration.
+    
+    This is the main entry point for profile analysis. It:
+    1. Loads each enabled model from the configuration
+    2. Generates quality assessments for all profiles
+    3. Adds results as new columns to the dataframe
+    
+    Args:
+        df: DataFrame containing profiles to analyze
+        config: Configuration dictionary with model definitions
+        input_col: Column name containing profile text
+        batch_size: Number of profiles to process at once
+        max_new_tokens: Maximum tokens to generate per response
         
-        # Set padding
-        if pipe.tokenizer.pad_token_id is None:
-            pipe.tokenizer.pad_token = pipe.tokenizer.eos_token
-        pipe.tokenizer.padding_side = 'left'
+    Returns:
+        DataFrame with added columns for each model's results
+    """
+    results = df.copy()
+    
+    # Get global HF token
+    global_hf_token = config.get('hf_token')
+    
+    # Process each enabled model
+    for model_config in config['models']:
+        if not model_config.get('enabled', True):
+            continue
         
-        # Print memory footprint
-        footprint_gb = pipe.model.get_memory_footprint() / (1024 ** 3)
-        print(f"Model memory footprint: {footprint_gb:.2f} GB")
+        # Resolve HF token for this model
+        hf_token = get_hf_token(model_config, global_hf_token)
         
-        # Process in batches
-        texts = df[input_col].fillna('').astype(str).tolist()
-        outputs = [''] * len(texts)
-        
-        # Build prompts
-        prompts = []
-        for text in texts:
-            if model_cfg.get('is_instruct', False):
-                messages = [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": f"About me:\n{text}"}
-                ]
-                prompt = pipe.tokenizer.apply_chat_template(
-                    messages, add_generation_prompt=True, tokenize=False
-                )
-            else:
-                prompt = f"{SYSTEM_PROMPT}\n\nAbout me:\n{text}\n\nAnalysis:"
-            prompts.append(prompt)
-        
-        # Generate in batches
-        for i in tqdm(range(0, len(prompts), batch_size), desc=f"{model_name}"):
-            batch = prompts[i:i+batch_size]
-            batch_outputs = pipe(
-                batch,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                return_full_text=False
-            )
-            
-            for j, output in enumerate(batch_outputs):
-                outputs[i+j] = output[0]['generated_text']
-        
-        # Parse outputs
-        parsed_outputs = [parse_json_output(out) for out in outputs]
-        
-        # Add columns
-        results[f'{model_name}_raw'] = outputs
-        results[f'{model_name}_quality'] = [
-            p.get('quality', '') if p else '' for p in parsed_outputs
-        ]
-        results[f'{model_name}_reasoning'] = [
-            p.get('reasoning', '') if p else '' for p in parsed_outputs
-        ]
-        results[f'{model_name}_tags'] = [
-            p.get('tags', []) if p else [] for p in parsed_outputs
-        ]
-        results[f'{model_name}_improvement_points'] = [
-            p.get('improvement_points', []) if p else [] for p in parsed_outputs
-        ]
-        
-        # Cleanup
-        del pipe
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        # Analyze with this model
+        analyze_single_model(
+            results,
+            model_config,
+            hf_token,
+            input_col,
+            batch_size,
+            max_new_tokens
+        )
     
     return results
