@@ -33,7 +33,7 @@ import pandas as pd
 from tqdm import tqdm
 import yaml
 
-from prompt import SYSTEM_PROMPT, generate_prompt
+from .prompt import SYSTEM_PROMPT, generate_prompt
 
 
 def load_config(path: str) -> Dict[str, Any]:
