@@ -27,10 +27,10 @@ def label_to_binary(value) -> int:
     value_str = str(value).strip().lower()
     
     # Bad quality indicators
-    if value_str in ('bad', '1', 'true', 'yes', 'y'):
+    if value_str == 'bad':
         return 1
     # Good quality indicators
-    elif value_str in ('good', '0', 'false', 'no', 'n'):
+    elif value_str == 'good':
         return 0
     # Invalid value
     else:
@@ -96,47 +96,10 @@ def calculate_metrics(
     }
 
 
-def print_evaluation_report(
-    model_name: str, 
-    metrics: Dict[str, any]
-) -> None:
-    """
-    Print formatted evaluation report for a model.
-    
-    Args:
-        model_name: Name of the model
-        metrics: Metrics dictionary from calculate_metrics
-    """
-    print(f"\n{'='*50}")
-    print(f"Evaluation for: {model_name}")
-    print('='*50)
-    
-    # Classification metrics
-    print("\nClassification Report:")
-    print(f"Accuracy: {metrics['accuracy']:.3f}")
-    print(f"\nGood profiles:")
-    print(f"  Precision: {metrics['good']['precision']:.3f}")
-    print(f"  Recall: {metrics['good']['recall']:.3f}")
-    print(f"  F1-score: {metrics['good']['f1-score']:.3f}")
-    print(f"\nBad profiles:")
-    print(f"  Precision: {metrics['bad']['precision']:.3f}")
-    print(f"  Recall: {metrics['bad']['recall']:.3f}")
-    print(f"  F1-score: {metrics['bad']['f1-score']:.3f}")
-    
-    # Confusion matrix
-    cm = metrics['confusion_matrix']
-    print("\nConfusion Matrix:")
-    print("                Predicted")
-    print("                good  bad")
-    print(f"Actual good     {cm[0,0]:>4}  {cm[0,1]:>3}")
-    print(f"       bad      {cm[1,0]:>4}  {cm[1,1]:>3}")
-
-
 def evaluate_all_models(
     df: pd.DataFrame, 
     model_names: Union[str, List[str]],
-    true_col: str = 'Human_flag',
-    print_individual_reports: bool = False
+    true_col: str = 'Human_flag'
 ) -> pd.DataFrame:
     """
     Evaluate one or more models and return comparison DataFrame.
@@ -145,7 +108,6 @@ def evaluate_all_models(
         df: DataFrame with predictions
         model_names: Single model name or list of model names to evaluate
         true_col: Column name for true labels
-        print_individual_reports: Whether to print detailed reports for each model
         
     Returns:
         DataFrame comparing all models' performance (single row if one model)
@@ -172,10 +134,6 @@ def evaluate_all_models(
         
         # Calculate metrics
         metrics = calculate_metrics(y_true, y_pred)
-        
-        # Print individual report if requested
-        if print_individual_reports:
-            print_evaluation_report(model_name, metrics)
         
         # Collect results
         results.append({

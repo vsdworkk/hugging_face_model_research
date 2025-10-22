@@ -1,9 +1,6 @@
 
 # Hugging Face Token Configuration
-# Option 1 (Recommended): Use .env file with HF_TOKEN=your_token_here
-# Option 2: Uncomment and set token here (not recommended for security)
-# hf_token: "your_token_here"
-# Option 3: Set per model with hf_token field in model config
+# Set HF_TOKEN in your .env file
 
 # Simplified configuration for profile analyzer
 models:

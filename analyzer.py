@@ -114,23 +114,6 @@ def get_quantization_config(quantization: str) -> Optional[BitsAndBytesConfig]:
         raise ValueError(f"Unknown quantization type: {quantization}")
 
 
-def get_hf_token(model_config: Dict[str, Any], global_token: Optional[str] = None) -> Optional[str]:
-    """
-    Resolve Hugging Face token from multiple sources.
-    
-    Priority order:
-    1. Model-specific token
-    2. Global token from config
-    3. Environment variable HF_TOKEN
-    
-    Args:
-        model_config: Model configuration dictionary
-        global_token: Global token from config root
-        
-    Returns:
-        Resolved token or None
-    """
-    return model_config.get('hf_token') or global_token or os.getenv('HF_TOKEN')
 
 
 def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = None) -> Pipeline:
@@ -331,16 +314,13 @@ def analyze_profiles(
     """
     results = df.copy()
     
-    # Get global HF token
-    global_hf_token = config.get('hf_token')
+    # Get HF token from environment
+    hf_token = os.getenv('HF_TOKEN')
     
     # Process each enabled model
     for model_config in config['models']:
         if not model_config.get('enabled', True):
             continue
-        
-        # Resolve HF token for this model
-        hf_token = get_hf_token(model_config, global_hf_token)
         
         # Analyze with this model
         analyze_single_model(
