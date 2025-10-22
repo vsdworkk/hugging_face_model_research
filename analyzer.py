@@ -1,4 +1,27 @@
-"""Profile analyzer for evaluating data science job seeker profiles."""
+"""
+Profile Quality Analyzer
+
+This module provides the main functionality for analyzing job seeker profile quality using 
+multiple language models. It serves as the central orchestrator that:
+
+- Loads and configures language models (LLMs) based on config.yaml settings
+- Processes profile text through multiple models using efficient batching
+- Generates structured quality assessments (good/bad ratings with reasoning)
+- Handles model quantization, tokenization, and memory management
+- Outputs results as structured data for evaluation
+
+Key Components:
+- Model pipeline management (loading, quantization, cleanup)
+- Batch processing for efficient inference
+- JSON output parsing and validation
+- Integration with prompt templates from prompt.py
+- Results formatting for downstream evaluation in evaluate.py
+
+Dependencies:
+- config.yaml: Model configurations and processing parameters
+- prompt.py: System prompts and message formatting
+- evaluate.py: Metrics calculation and model comparison
+"""
 import json
 import re
 from typing import List, Dict, Optional, Any, Tuple
