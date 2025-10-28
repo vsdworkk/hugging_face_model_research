@@ -1,0 +1,43 @@
+
+# Hugging Face Token Configuration
+# Set HF_TOKEN in your .env file
+
+# Simplified configuration for profile analyzer
+models:
+  - name: "llama_3b"
+    enabled: false
+    model_id: "meta-llama/Llama-3.2-3B-Instruct"
+    is_instruct: true
+    quantization: "none"  # Options: none, 8bit, 4bit
+    device_map: "auto"
+    torch_dtype: "auto"
+  
+  - name: "llama_1b"
+    enabled: true
+    model_id: "meta-llama/Llama-3.2-1B-Instruct"
+    is_instruct: true
+    quantization: "none"
+    device_map: "auto"
+    torch_dtype: "auto"
+  
+  - name: "gemma_1b"
+    enabled: true
+    model_id: "google/gemma-3-1b-it"
+    is_instruct: true
+    quantization: "none"
+    device_map: "auto"
+    torch_dtype: "auto"
+
+# Generation settings
+batch_size: 10
+max_new_tokens: 2000
+
+# Data columns
+input_column: "about_me"
+human_label_column: "Human_flag"
+
+# Paths
+paths:
+  input_data: "about_me_quality_dataset.csv"
+  results_output: "profile_analysis_results_{timestamp}.csv"
+  metrics_output: "model_metrics_{timestamp}.csv"
