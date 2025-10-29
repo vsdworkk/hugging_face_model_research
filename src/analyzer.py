@@ -30,13 +30,13 @@ import os
 import torch
 from transformers import pipeline, Pipeline, BitsAndBytesConfig
 from transformers.pipelines.pt_utils import KeyDataset  # for efficient dataset streaming
+from transformers.utils import hub
 import datasets  # Hugging Face datasets library
 import pandas as pd
 from tqdm import tqdm
 import yaml
 
 from .prompt import SYSTEM_PROMPT, generate_prompt
-from .utilities import cleanup_gpu_memory, print_gpu_memory_status
 
 def load_config(path: str) -> Dict[str, Any]:
     """
@@ -244,20 +244,12 @@ def analyze_single_model(
     """
     model_name = model_config['name']
     print(f"\nProcessing with {model_name}: {model_config['model_id']}")
-    
-    # Print GPU memory before loading
-    print("GPU memory before loading:")
-    print_gpu_memory_status()
-    
     # Load model pipeline
     pipe = load_model_pipeline(model_config, hf_token)
     prepare_tokenizer(pipe)
-    
-    # Print memory footprint and GPU usage after loading
+    # Print memory footprint
     footprint_gb = pipe.model.get_memory_footprint() / (1024 ** 3)
     print(f"Model memory footprint: {footprint_gb:.2f} GB")
-    print("GPU memory after loading:")
-    print_gpu_memory_status()
     # Prepare texts and prompts
     texts = df[input_col].fillna('').astype(str).tolist()
     prompts = generate_prompts(texts, model_config, pipe.tokenizer)
@@ -267,10 +259,13 @@ def analyze_single_model(
     parsed_outputs = [parse_json_output(out) for out in raw_outputs]
     # Add results to dataframe
     add_model_results_to_dataframe(df, model_name, raw_outputs, parsed_outputs)
-    # Comprehensive GPU memory cleanup
-    cleanup_gpu_memory(pipe)
-    print("GPU memory after cleanup:")
-    print_gpu_memory_status()
+    # Cleanup GPU memory
+    del pipe
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    # Clear model cache to free up disk space for next model
+    print("Clearing Hugging Face cache...")
+    hub.scan_cache_dir().delete_revisions(*hub.scan_cache_dir().repos)
 
 def analyze_profiles(
     df: pd.DataFrame, 
@@ -286,6 +281,7 @@ def analyze_profiles(
     1. Loads each enabled model from the configuration
     2. Generates quality assessments for all profiles
     3. Adds results as new columns to the dataframe
+    4. Clears model cache after each model to prevent disk space issues
     
     Args:
         df: DataFrame containing profiles to analyze
