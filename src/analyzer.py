@@ -26,11 +26,11 @@ import json
 import re
 from typing import List, Dict, Optional, Any
 import os
+import shutil
 
 import torch
 from transformers import pipeline, Pipeline, BitsAndBytesConfig
 from transformers.pipelines.pt_utils import KeyDataset  # for efficient dataset streaming
-from transformers.utils import hub
 import datasets  # Hugging Face datasets library
 import pandas as pd
 from tqdm import tqdm
@@ -264,8 +264,16 @@ def analyze_single_model(
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
     # Clear model cache to free up disk space for next model
+    free_before = shutil.disk_usage(".").free / (1024**3)
+    print(f"Free space before cache clear: {free_before:.2f} GB")
     print("Clearing Hugging Face cache...")
-    hub.scan_cache_dir().delete_revisions(*hub.scan_cache_dir().repos)
+    
+    # TODO: Replace PLACEHOLDER_CACHE_DIR with your actual cache path
+    shutil.rmtree(os.path.expanduser("PLACEHOLDER_CACHE_DIR"))  # e.g., "~/.cache/huggingface"
+    
+    free_after = shutil.disk_usage(".").free / (1024**3)
+    print(f"Free space after cache clear: {free_after:.2f} GB")
+    print(f"Freed up: {free_after - free_before:.2f} GB")
 
 def analyze_profiles(
     df: pd.DataFrame, 
