@@ -250,6 +250,11 @@ def analyze_single_model(
     # Print memory footprint
     footprint_gb = pipe.model.get_memory_footprint() / (1024 ** 3)
     print(f"Model memory footprint: {footprint_gb:.2f} GB")
+    # Print GPU memory usage
+    if torch.cuda.is_available():
+        gpu_allocated = torch.cuda.memory_allocated() / (1024**3)
+        gpu_reserved = torch.cuda.memory_reserved() / (1024**3)
+        print(f"GPU memory allocated: {gpu_allocated:.2f} GB, reserved: {gpu_reserved:.2f} GB")
     # Prepare texts and prompts
     texts = df[input_col].fillna('').astype(str).tolist()
     prompts = generate_prompts(texts, model_config, pipe.tokenizer)
@@ -263,17 +268,19 @@ def analyze_single_model(
     del pipe
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+        gpu_allocated_after = torch.cuda.memory_allocated() / (1024**3)
+        gpu_reserved_after = torch.cuda.memory_reserved() / (1024**3)
+        print(f"GPU memory after cleanup - allocated: {gpu_allocated_after:.2f} GB, reserved: {gpu_reserved_after:.2f} GB")
     # Clear model cache to free up disk space for next model
     free_before = shutil.disk_usage(".").free / (1024**3)
-    print(f"Free space before cache clear: {free_before:.2f} GB")
-    print("Clearing Hugging Face cache...")
+
     
     # TODO: Replace PLACEHOLDER_CACHE_DIR with your actual cache path
     shutil.rmtree(os.path.expanduser("PLACEHOLDER_CACHE_DIR"))  # e.g., "~/.cache/huggingface"
     
     free_after = shutil.disk_usage(".").free / (1024**3)
-    print(f"Free space after cache clear: {free_after:.2f} GB")
-    print(f"Freed up: {free_after - free_before:.2f} GB")
+    print(free_after, free_before)
+ 
 
 def analyze_profiles(
     df: pd.DataFrame, 
