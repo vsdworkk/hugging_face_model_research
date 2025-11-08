@@ -1,9 +1,0 @@
-transformers>=4.35.0    # Hugging Face transformers library for loading and running LLMs
-torch>=2.0.0            # PyTorch deep learning framework
-pandas>=2.0.0           # Data manipulation and analysis library
-scikit-learn>=1.3.0     # Machine learning library for evaluation metrics
-accelerate>=0.20.0      # Hugging Face library for distributed training and inference
-pyyaml>=6.0             # YAML parser for configuration files
-tqdm>=4.65.0            # Progress bars for batch processing
-bitsandbytes>=0.41.0    # Optional: for model quantization (4bit/8bit) to reduce memory usage
-python-dotenv>=1.0.0    # For loading environment variables from .env files

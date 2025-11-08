@@ -1,9 +1,0 @@
-Use only instruction-tuned models for this project.
-
-Rationale:
-- Base (non-instruction-tuned) models do not reliably follow instructions and produce inconsistent outputs.
-- Instruction-tuned models support structured chat prompts (system/user/assistant) and adhere to guidance far more consistently.
-- Prefer models with a native chat template exposed via the tokenizer.
-
-Action:
-- When configuring models, choose instruction-tuned checkpoints and enable chat templating.
