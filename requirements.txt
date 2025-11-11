@@ -1,4 +1,4 @@
-transformers>=4.35.0    # Hugging Face transformers library for loading and running LLMs
+transformers>=4.35.0    # Hugging Face transformers library for loading and running LLMs (tested up to 4.55.1)
 torch>=2.0.0            # PyTorch deep learning framework
 pandas>=2.0.0           # Data manipulation and analysis library
 scikit-learn>=1.3.0     # Machine learning library for evaluation metrics

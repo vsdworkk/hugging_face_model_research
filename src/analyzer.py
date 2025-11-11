@@ -130,7 +130,7 @@ def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = 
     # Setup hub kwargs for authentication
     hub_kwargs = {"token": hf_token} if hf_token else {}
     
-    # Setup quantization
+    # Setup quantization and model_kwargs
     model_kwargs = {}
     quantization = model_config.get('quantization', 'none')
     torch_dtype = model_config.get('torch_dtype', 'auto')
@@ -140,12 +140,23 @@ def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = 
         # Force auto dtype when using quantization
         torch_dtype = 'auto'
     
-    # Create pipeline
+    # Add torch_dtype to model_kwargs (required for transformers >= 4.55)
+    if torch_dtype != 'auto':
+        # Convert string to torch dtype if needed
+        if torch_dtype == 'float16':
+            model_kwargs['torch_dtype'] = torch.float16
+        elif torch_dtype == 'bfloat16':
+            model_kwargs['torch_dtype'] = torch.bfloat16
+        elif torch_dtype == 'float32':
+            model_kwargs['torch_dtype'] = torch.float32
+        else:
+            model_kwargs['torch_dtype'] = torch_dtype
+    
+    # Create pipeline (torch_dtype now in model_kwargs, not as direct parameter)
     return pipeline(
         "text-generation",
         model=model_config['model_id'],
         device_map=model_config.get('device_map', 'auto'),
-        torch_dtype=torch_dtype,
         model_kwargs=model_kwargs,
         **hub_kwargs
     )
