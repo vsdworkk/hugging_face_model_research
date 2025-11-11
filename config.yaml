@@ -5,10 +5,10 @@
 # Simplified configuration for profile analyzer
 models:
   - name: "llama_3b"
-    enabled: false
+    enabled: true
     model_id: "meta-llama/Llama-3.2-3B-Instruct"
     is_instruct: true
-    quantization: "none"  # Options: none, 8bit, 4bit
+    quantization: "4bit"  # Options: none, 8bit, 4bit
     device_map: "auto"
     torch_dtype: "auto"
   
