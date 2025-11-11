@@ -220,7 +220,89 @@ def parse_json_output(text: str):
 
 ---
 
-## Slide 9: Challenge 3: Model Format Compatibility
+## Slide 9: Challenge 3: Optimizing Unreliable Model Outputs
+
+### Problem: Models Don't Always Follow Instructions
+
+**The Issue**
+- Smaller models (1B-3B parameters) are less reliable than larger models
+- Inconsistent output quality across different profiles
+- Models sometimes ignore JSON format requirements
+- Models may produce low-quality or irrelevant reasoning
+- Non-deterministic outputs make evaluation difficult
+
+**Our Solution: Multi-Layered Optimization Strategy**
+
+**1. Deterministic Sampling**
+```python
+batch_outputs = pipe(
+    batch,
+    max_new_tokens=max_new_tokens,
+    do_sample=False,  # Deterministic, reproducible outputs
+    return_full_text=False
+)
+```
+- Ensures reproducible results for evaluation
+- Reduces randomness that can hurt smaller models
+- Makes debugging and comparison easier
+
+**2. Structured Prompt Engineering**
+- Clear task definition with explicit boundaries
+- Detailed scoring criteria with examples
+- Multiple reminders about output format
+- Example output included in prompt (few-shot learning)
+- XML-style tags for structure (`<task>`, `<output_format>`)
+
+**3. Explicit Output Format Specification**
+```python
+SYSTEM_PROMPT = """
+<output_instructions>
+You MUST respond with ONLY a valid JSON object. 
+Do not include any text before or after the JSON.
+Do not include markdown formatting, code blocks, or any other formatting.
+Output ONLY the raw JSON object starting with { and ending with }
+</output_instructions>
+
+<example_output>
+{
+  "quality": "bad",
+  "reasoning": "...",
+  "tags": [...],
+  "improvement_points": [...]
+}
+</example_output>
+"""
+```
+- Multiple explicit instructions about format
+- Example output shows exactly what we want
+- Reduces format violations
+
+**4. Graceful Degradation**
+- Multi-strategy JSON parsing (covered in Challenge 2)
+- Handles missing or invalid predictions
+- System continues processing even with failures
+- Evaluation filters out invalid predictions
+
+**5. Token Limit Management**
+```python
+max_new_tokens: 2000  # Configurable in config.yaml
+```
+- Prevents models from generating excessively long outputs
+- Reduces chance of format drift
+- Balances completeness vs consistency
+
+**Why This Works**
+- Deterministic sampling reduces variability
+- Structured prompts guide smaller models better
+- Example outputs provide few-shot learning
+- Multiple format reminders increase compliance
+- Graceful handling prevents system failures
+
+**Result**: Reliable outputs even from smaller, less capable models
+
+---
+
+## Slide 10: Challenge 4: Model Format Compatibility
 
 ### Problem: Different Models, Different Formats
 
@@ -258,7 +340,7 @@ def generate_prompt(text, model_config, tokenizer):
 
 ---
 
-## Slide 10: Challenge 4: Batch Processing Efficiency
+## Slide 11: Challenge 5: Batch Processing Efficiency
 
 ### Problem: Processing Thousands of Profiles
 
@@ -295,7 +377,7 @@ def process_in_batches(pipe, prompts, batch_size, max_new_tokens):
 
 ---
 
-## Slide 11: Challenge 5: Evaluation Metrics Design
+## Slide 12: Challenge 6: Evaluation Metrics Design
 
 ### Problem: Choosing the Right Metrics
 
@@ -326,7 +408,7 @@ def evaluate_all_models(df, model_names, true_col):
 
 ---
 
-## Slide 12: Architecture Decisions: Why We Did It This Way
+## Slide 13: Architecture Decisions: Why We Did It This Way
 
 ### Decision 1: YAML Configuration
 
@@ -354,7 +436,7 @@ def evaluate_all_models(df, model_names, true_col):
 
 ---
 
-## Slide 13: Architecture Decisions (Continued)
+## Slide 14: Architecture Decisions (Continued)
 
 ### Decision 4: Hugging Face Pipeline
 
@@ -382,7 +464,7 @@ def evaluate_all_models(df, model_names, true_col):
 
 ---
 
-## Slide 14: Key Features
+## Slide 15: Key Features
 
 ### What Makes This System Robust
 
@@ -408,7 +490,7 @@ def evaluate_all_models(df, model_names, true_col):
 
 ---
 
-## Slide 15: Example Output
+## Slide 16: Example Output
 
 ### Model Comparison Results
 
@@ -433,7 +515,7 @@ MODEL COMPARISON
 
 ---
 
-## Slide 16: Technical Stack
+## Slide 17: Technical Stack
 
 ### Technologies Used
 
@@ -458,7 +540,7 @@ MODEL COMPARISON
 
 ---
 
-## Slide 17: Lessons Learned
+## Slide 18: Lessons Learned
 
 ### Key Takeaways
 
@@ -482,9 +564,15 @@ MODEL COMPARISON
 - Precision vs Recall tradeoff is real
 - Support sample size ensures reliability
 
+**5. Optimizing Smaller Models Requires Strategy**
+- Deterministic sampling improves consistency
+- Structured prompts with examples are essential
+- Multiple format reminders increase compliance
+- Graceful degradation prevents system failures
+
 ---
 
-## Slide 18: Future Enhancements
+## Slide 19: Future Enhancements
 
 ### Potential Improvements
 
@@ -510,7 +598,7 @@ MODEL COMPARISON
 
 ---
 
-## Slide 19: Business Impact
+## Slide 20: Business Impact
 
 ### Value Delivered
 
@@ -536,7 +624,7 @@ MODEL COMPARISON
 
 ---
 
-## Slide 20: Conclusion
+## Slide 21: Conclusion
 
 ### Summary
 
@@ -548,6 +636,7 @@ MODEL COMPARISON
 **How We Overcame Challenges**
 - Memory management through quantization and cleanup
 - Robust JSON parsing with multiple strategies
+- Optimized unreliable model outputs with deterministic sampling and structured prompts
 - Flexible prompt formatting for different model types
 - Efficient batch processing
 - Well-designed evaluation metrics
@@ -565,7 +654,7 @@ MODEL COMPARISON
 
 ---
 
-## Slide 21: Q&A
+## Slide 22: Q&A
 
 ### Questions?
 
