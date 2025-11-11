@@ -24,19 +24,17 @@ Dependencies:
 """
 import json
 import re
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 import os
-import shutil
 
 import torch
 from transformers import pipeline, Pipeline, BitsAndBytesConfig
-from transformers.pipelines.pt_utils import KeyDataset  # for efficient dataset streaming
-import datasets  # Hugging Face datasets library
 import pandas as pd
 from tqdm import tqdm
 import yaml
 
 from .prompt import SYSTEM_PROMPT, generate_prompt
+
 
 def load_config(path: str) -> Dict[str, Any]:
     """
@@ -50,6 +48,7 @@ def load_config(path: str) -> Dict[str, Any]:
     """
     with open(path, 'r') as f:
         return yaml.safe_load(f)
+
 
 def parse_json_output(text: str) -> Optional[Dict[str, Any]]:
     """
@@ -67,12 +66,14 @@ def parse_json_output(text: str) -> Optional[Dict[str, Any]]:
     """
     if not isinstance(text, str):
         return None
+    
     # Try direct parse first
     try:
         obj = json.loads(text.strip())
         return obj if isinstance(obj, dict) else None
     except json.JSONDecodeError:
         pass
+    
     # Try to find JSON object using regex
     match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text)
     if match:
@@ -81,7 +82,9 @@ def parse_json_output(text: str) -> Optional[Dict[str, Any]]:
             return obj if isinstance(obj, dict) else None
         except json.JSONDecodeError:
             pass
+    
     return None
+
 
 def get_quantization_config(quantization: str) -> Optional[BitsAndBytesConfig]:
     """
@@ -110,6 +113,7 @@ def get_quantization_config(quantization: str) -> Optional[BitsAndBytesConfig]:
     else:
         raise ValueError(f"Unknown quantization type: {quantization}")
 
+
 def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = None) -> Pipeline:
     """
     Load and configure a model pipeline.
@@ -134,15 +138,16 @@ def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = 
         # Force auto dtype when using quantization
         torch_dtype = 'auto'
     
-    # Create pipeline - pass torch_dtype directly to pipeline() (like working example)
+    # Create pipeline - use dtype parameter for transformers 4.55+
     return pipeline(
         "text-generation",
         model=model_config['model_id'],
-        torch_dtype=torch_dtype,  # Pass directly to pipeline, not in model_kwargs
+        dtype=torch_dtype,  # Changed from torch_dtype to dtype
         device_map=model_config.get('device_map', 'auto'),
-        model_kwargs=model_kwargs,  # Contains quantization_config if quantization is enabled
+        model_kwargs=model_kwargs,
         **hub_kwargs
     )
+
 
 def prepare_tokenizer(pipe: Pipeline) -> None:
     """
@@ -154,6 +159,7 @@ def prepare_tokenizer(pipe: Pipeline) -> None:
     if pipe.tokenizer.pad_token_id is None:
         pipe.tokenizer.pad_token = pipe.tokenizer.eos_token
     pipe.tokenizer.padding_side = 'left'
+
 
 def generate_prompts(texts: List[str], model_config: Dict[str, Any], tokenizer: Any) -> List[str]:
     """
@@ -169,6 +175,7 @@ def generate_prompts(texts: List[str], model_config: Dict[str, Any], tokenizer: 
     """
     return [generate_prompt(text, model_config, tokenizer) for text in texts]
 
+
 def process_in_batches(
     pipe: Pipeline,
     prompts: List[str],
@@ -177,23 +184,24 @@ def process_in_batches(
 ) -> List[str]:
     """
     Process prompts in batches through the model pipeline.
-    
-    This streams the prompts through the pipeline in a batched manner using a Dataset,
-    which maximizes GPU utilization and avoids sequential processing warnings.
     """
     outputs = []
-    # Create a streaming Dataset for the prompts to leverage the pipeline's batching on GPU
-    dataset = datasets.Dataset.from_dict({'text': prompts})
-    # Use KeyDataset to stream the 'text' field of the dataset into the pipeline
-    for output in pipe(KeyDataset(dataset, 'text'), 
-                       batch_size=batch_size, max_new_tokens=max_new_tokens, 
-                       do_sample=False, return_full_text=False):
-        # Each iteration yields the model output for one prompt
-        if isinstance(output, list) and output and isinstance(output[0], dict):
-            outputs.append(output[0].get('generated_text', ''))
-        elif isinstance(output, dict):
-            outputs.append(output.get('generated_text', ''))
+    for i in range(0, len(prompts), batch_size):
+        batch = prompts[i:i + batch_size]
+        batch_outputs = pipe(
+            batch,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            return_full_text=False
+        )
+        for output in batch_outputs:
+            if isinstance(output, list) and output and isinstance(output[0], dict):
+                outputs.append(output[0].get('generated_text', ''))
+            elif isinstance(output, dict):
+                outputs.append(output.get('generated_text', ''))
     return outputs
+
+
 
 def add_model_results_to_dataframe(
     df: pd.DataFrame,
@@ -210,14 +218,15 @@ def add_model_results_to_dataframe(
         raw_outputs: Raw model outputs
         parsed_outputs: Parsed JSON outputs
     """
-    # Add raw text output
-    df[f'{model_name}_raw_output'] = raw_outputs
-    # Add parsed fields (if available) or default empty structures
+    # Add raw output column
+    df[f'{model_name}_raw'] = raw_outputs
+    
+    # Add parsed fields
     df[f'{model_name}_quality'] = [
-        p.get('quality') if p else None for p in parsed_outputs
+        p.get('quality', '') if p else '' for p in parsed_outputs
     ]
     df[f'{model_name}_reasoning'] = [
-        p.get('reasoning') if p else None for p in parsed_outputs
+        p.get('reasoning', '') if p else '' for p in parsed_outputs
     ]
     df[f'{model_name}_tags'] = [
         p.get('tags', []) if p else [] for p in parsed_outputs
@@ -225,6 +234,7 @@ def add_model_results_to_dataframe(
     df[f'{model_name}_improvement_points'] = [
         p.get('improvement_points', []) if p else [] for p in parsed_outputs
     ]
+
 
 def analyze_single_model(
     df: pd.DataFrame,
@@ -247,43 +257,33 @@ def analyze_single_model(
     """
     model_name = model_config['name']
     print(f"\nProcessing with {model_name}: {model_config['model_id']}")
+    
     # Load model pipeline
     pipe = load_model_pipeline(model_config, hf_token)
     prepare_tokenizer(pipe)
+    
     # Print memory footprint
     footprint_gb = pipe.model.get_memory_footprint() / (1024 ** 3)
     print(f"Model memory footprint: {footprint_gb:.2f} GB")
-    # Print GPU memory usage
-    if torch.cuda.is_available():
-        gpu_allocated = torch.cuda.memory_allocated() / (1024**3)
-        gpu_reserved = torch.cuda.memory_reserved() / (1024**3)
-        print(f"GPU memory allocated: {gpu_allocated:.2f} GB, reserved: {gpu_reserved:.2f} GB")
+    
     # Prepare texts and prompts
     texts = df[input_col].fillna('').astype(str).tolist()
     prompts = generate_prompts(texts, model_config, pipe.tokenizer)
-    # Generate outputs in batches (efficient GPU utilization)
+    
+    # Generate outputs
     raw_outputs = process_in_batches(pipe, prompts, batch_size, max_new_tokens)
-    # Parse outputs into structured JSON (if possible)
+    
+    # Parse outputs
     parsed_outputs = [parse_json_output(out) for out in raw_outputs]
+    
     # Add results to dataframe
     add_model_results_to_dataframe(df, model_name, raw_outputs, parsed_outputs)
-    # Cleanup GPU memory
+    
+    # Cleanup
     del pipe
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-        gpu_allocated_after = torch.cuda.memory_allocated() / (1024**3)
-        gpu_reserved_after = torch.cuda.memory_reserved() / (1024**3)
-        print(f"GPU memory after cleanup - allocated: {gpu_allocated_after:.2f} GB, reserved: {gpu_reserved_after:.2f} GB")
-    # Clear model cache to free up disk space for next model
-    free_before = shutil.disk_usage(".").free / (1024**3)
 
-    
-    # TODO: Replace PLACEHOLDER_CACHE_DIR with your actual cache path
-    shutil.rmtree(os.path.expanduser("PLACEHOLDER_CACHE_DIR"))  # e.g., "~/.cache/huggingface"
-    
-    free_after = shutil.disk_usage(".").free / (1024**3)
-    print(free_after, free_before)
- 
 
 def analyze_profiles(
     df: pd.DataFrame, 
@@ -299,7 +299,6 @@ def analyze_profiles(
     1. Loads each enabled model from the configuration
     2. Generates quality assessments for all profiles
     3. Adds results as new columns to the dataframe
-    4. Clears model cache after each model to prevent disk space issues
     
     Args:
         df: DataFrame containing profiles to analyze
@@ -312,12 +311,15 @@ def analyze_profiles(
         DataFrame with added columns for each model's results
     """
     results = df.copy()
+    
     # Get HF token from environment
     hf_token = os.getenv('HF_TOKEN')
+    
     # Process each enabled model
     for model_config in config['models']:
         if not model_config.get('enabled', True):
             continue
+        
         # Analyze with this model
         analyze_single_model(
             results,
@@ -327,4 +329,5 @@ def analyze_profiles(
             batch_size,
             max_new_tokens
         )
+    
     return results
