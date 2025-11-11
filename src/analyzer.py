@@ -145,6 +145,9 @@ def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = 
         else:
             model_kwargs['torch_dtype'] = torch_dtype
     
+    # Force use of PyTorch .bin files instead of safetensors to avoid loading issues in 4.55.1
+    model_kwargs['use_safetensors'] = False
+    
     # Create pipeline (torch_dtype now in model_kwargs, not as direct parameter)
     return pipeline(
         "text-generation",
