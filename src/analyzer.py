@@ -128,32 +128,19 @@ def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = 
     model_kwargs = {}
     quantization = model_config.get('quantization', 'none')
     torch_dtype = model_config.get('torch_dtype', 'auto')
+    
     if quantization != 'none':
         model_kwargs['quantization_config'] = get_quantization_config(quantization)
         # Force auto dtype when using quantization
         torch_dtype = 'auto'
     
-    # Add torch_dtype to model_kwargs (required for transformers >= 4.55)
-    if torch_dtype != 'auto':
-        # Convert string to torch dtype if needed
-        if torch_dtype == 'float16':
-            model_kwargs['torch_dtype'] = torch.float16
-        elif torch_dtype == 'bfloat16':
-            model_kwargs['torch_dtype'] = torch.bfloat16
-        elif torch_dtype == 'float32':
-            model_kwargs['torch_dtype'] = torch.float32
-        else:
-            model_kwargs['torch_dtype'] = torch_dtype
-    
-    # Force use of PyTorch .bin files instead of safetensors to avoid loading issues in 4.55.1
-    model_kwargs['use_safetensors'] = False
-    
-    # Create pipeline (torch_dtype now in model_kwargs, not as direct parameter)
+    # Create pipeline - pass torch_dtype directly to pipeline() (like working example)
     return pipeline(
         "text-generation",
         model=model_config['model_id'],
+        torch_dtype=torch_dtype,  # Pass directly to pipeline, not in model_kwargs
         device_map=model_config.get('device_map', 'auto'),
-        model_kwargs=model_kwargs,
+        model_kwargs=model_kwargs,  # Contains quantization_config if quantization is enabled
         **hub_kwargs
     )
 

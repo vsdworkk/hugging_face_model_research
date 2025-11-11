@@ -46,7 +46,13 @@ return pipeline(
 
 ## What Changed in Transformers 4.55.1
 
-In newer versions of the `transformers` library (>= 4.55.1), the `pipeline()` function's API was updated to require model-specific parameters like `torch_dtype` to be passed inside the `model_kwargs` dictionary rather than as direct parameters to the `pipeline()` function.
+Two major changes in transformers 4.55.1 affect model loading:
+
+### 1. torch_dtype Parameter Location
+The `pipeline()` function's API was updated to require model-specific parameters like `torch_dtype` to be passed inside the `model_kwargs` dictionary rather than as direct parameters to the `pipeline()` function.
+
+### 2. Default Safetensors Loading
+Transformers 4.55.1 defaults to loading models using the `safetensors` format for enhanced security and performance. However, this can cause loading to hang for some models that don't have `safetensors` files or have compatibility issues.
 
 This aligns with the pattern shown in the Hugging Face documentation:
 
@@ -54,7 +60,10 @@ This aligns with the pattern shown in the Hugging Face documentation:
 pipeline = transformers.pipeline(
     "text-generation",
     model=model_id,
-    model_kwargs={"torch_dtype": torch.bfloat16},  # Inside model_kwargs
+    model_kwargs={
+        "torch_dtype": torch.bfloat16,  # Inside model_kwargs
+        "use_safetensors": False        # Force PyTorch .bin files
+    },
     device_map="auto",
 )
 ```
@@ -65,6 +74,7 @@ pipeline = transformers.pipeline(
    - Updated `load_model_pipeline()` function (lines 119-162)
    - Moved `torch_dtype` parameter from direct pipeline parameter to inside `model_kwargs`
    - Added proper torch dtype conversion (string to torch type)
+   - Added `use_safetensors=False` to force PyTorch `.bin` file loading and prevent hanging
 
 2. **`requirements.txt`**
    - Updated comment to indicate testing with version 4.55.1
