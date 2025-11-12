@@ -23,6 +23,7 @@ import pandas as pd
 from tqdm import tqdm
 import yaml
 from .prompt import SYSTEM_PROMPT, generate_prompt
+from .harmony_utils import is_harmony_model, parse_harmony_response, render_harmony_prompt, build_harmony_conversation
 
 
 def load_config(path: str) -> Dict[str, Any]:
@@ -105,31 +106,55 @@ def prepare_tokenizer(pipe: Pipeline) -> None:
     pipe.tokenizer.padding_side = 'left'
 
 
-def generate_prompts(texts: List[str], model_config: Dict[str, Any], tokenizer: Any) -> List[str]:
+def generate_prompts(texts: List[str], model_config: Dict[str, Any], tokenizer: Any) -> List[Any]:
+    """Generate prompts - returns strings for standard models, token IDs for Harmony models."""
     return [generate_prompt(text, model_config, tokenizer) for text in texts]
 
 
 def process_in_batches(
     pipe: Pipeline,
-    prompts: List[str],
+    prompts: List[Any],
     batch_size: int,
-    max_new_tokens: int
+    max_new_tokens: int,
+    model_config: Dict[str, Any]
 ) -> List[str]:
+    """Process prompts in batches, handling both standard and Harmony models."""
     outputs = []
-    dataset = datasets.Dataset.from_dict({'text': prompts})
-    for output in pipe(
-        KeyDataset(dataset, 'text'),
-        batch_size=batch_size,
-        max_new_tokens=max_new_tokens,
-        max_new_tokens=max_new_tokens,
-        do_sample=False,
-        return_full_text=False
-    ):
-        if isinstance(output, list) and output and isinstance(output[0], dict):
-            outputs.append(output[0].get('generated_text', ''))
-        elif isinstance(output, dict):
-            outputs.append(output.get('generated_text', ''))
-        
+    
+    if is_harmony_model(model_config):
+        # Process Harmony models with token IDs
+        for prompt_ids in prompts:
+            # Get stop tokens for Harmony
+            _, stop_token_ids = render_harmony_prompt(build_harmony_conversation("", ""))
+            
+            # Generate with Harmony-specific settings
+            result = pipe.model.generate(
+                input_ids=torch.tensor([prompt_ids]).to(pipe.model.device),
+                max_new_tokens=max_new_tokens,
+                eos_token_id=stop_token_ids,
+                do_sample=False,
+                pad_token_id=pipe.tokenizer.eos_token_id
+            )
+            
+            # Extract completion tokens and parse
+            completion_tokens = result[0][len(prompt_ids):].tolist()
+            parsed_output = parse_harmony_response(completion_tokens)
+            outputs.append(parsed_output or "")
+    else:
+        # Standard processing for non-Harmony models
+        dataset = datasets.Dataset.from_dict({'text': prompts})
+        for output in pipe(
+            KeyDataset(dataset, 'text'),
+            batch_size=batch_size,
+            max_new_tokens=max_new_tokens,
+            do_sample=False,
+            return_full_text=False
+        ):
+            if isinstance(output, list) and output and isinstance(output[0], dict):
+                outputs.append(output[0].get('generated_text', ''))
+            elif isinstance(output, dict):
+                outputs.append(output.get('generated_text', ''))
+    
     return outputs
 
 
@@ -171,7 +196,7 @@ def analyze_single_model(
     texts = df[input_col].fillna('').astype(str).tolist()
     prompts = generate_prompts(texts, model_config, pipe.tokenizer)
 
-    raw_outputs = process_in_batches(pipe, prompts, batch_size, max_new_tokens)
+    raw_outputs = process_in_batches(pipe, prompts, batch_size, max_new_tokens, model_config)
     parsed_outputs = [parse_json_output(out) for out in raw_outputs]
 
     add_model_results_to_dataframe(df, model_name, raw_outputs, parsed_outputs)

@@ -27,6 +27,20 @@ models:
     quantization: "none"
     device_map: "auto"
     torch_dtype: "auto"
+  
+  - name: "gpt_oss_20b"
+    enabled: false
+    model_id: "openai/gpt-oss-20b"
+    is_harmony: true
+    device_map: "auto"
+    torch_dtype: "auto"
+  
+  - name: "gpt_oss_120b"
+    enabled: false
+    model_id: "openai/gpt-oss-120b"
+    is_harmony: true
+    device_map: "auto"
+    torch_dtype: "auto"
 
 # Generation settings
 batch_size: 10

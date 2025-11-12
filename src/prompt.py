@@ -1,5 +1,6 @@
 """Prompt generation and management for profile analysis."""
 from typing import Dict, List, Any
+from .harmony_utils import is_harmony_model, build_harmony_conversation, render_harmony_prompt
 
 
 SYSTEM_PROMPT = """You are an expert AI Recruitment and Profile Quality Analyst.
@@ -67,9 +68,14 @@ def generate_prompt(text: str, model_config: Dict[str, Any], tokenizer: Any) -> 
         tokenizer: The tokenizer for the model
         
     Returns:
-        Formatted prompt string
+        Formatted prompt string or token IDs for Harmony models
     """
-    if model_config.get('is_instruct', False):
+    if is_harmony_model(model_config):
+        # Use Harmony format for gpt-oss models
+        conversation = build_harmony_conversation(SYSTEM_PROMPT, text)
+        prompt_ids, _ = render_harmony_prompt(conversation)
+        return prompt_ids  # Return token IDs directly
+    elif model_config.get('is_instruct', False):
         # Use chat template for instruct models
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
