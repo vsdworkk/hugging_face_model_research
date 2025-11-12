@@ -28,7 +28,7 @@ HARMONY_SETTINGS = {
 }
 
 DEFAULT_CACHE_DIR = Path(
-    os.environ.get("TIKTOKEN_CACHE_DIR", "/tmp/harmony_cache")
+    os.environ.get("TIKTOKEN_CACHE_DIR", "/dbfs/FileStore/harmony_encodings")
 ).expanduser()
 
 
@@ -98,7 +98,7 @@ def parse_harmony_response(completion_tokens: List[int]) -> Optional[str]:
         completion_tokens: Generated token IDs from model
         
     Returns:
-        Final response content or None if parsing fails
+        Final response content as plain text or None if parsing fails
     """
     try:
         encoding = load_harmony_encoder()
@@ -109,7 +109,24 @@ def parse_harmony_response(completion_tokens: List[int]) -> Optional[str]:
         # Extract only final channel messages
         for message in messages:
             if hasattr(message, 'channel') and message.channel == 'final':
-                return message.content
+                content = message.content
+                
+                # Handle TextContent objects - extract the actual text
+                if hasattr(content, '__iter__') and not isinstance(content, str):
+                    # If content is a list of TextContent objects
+                    text_parts = []
+                    for item in content:
+                        if hasattr(item, 'text'):
+                            text_parts.append(item.text)
+                        else:
+                            text_parts.append(str(item))
+                    return ''.join(text_parts)
+                elif hasattr(content, 'text'):
+                    # If content is a single TextContent object
+                    return content.text
+                else:
+                    # If content is already a string
+                    return str(content)
                 
         return None
     except Exception:
