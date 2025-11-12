@@ -129,6 +129,7 @@ def process_in_batches(
         # Process Harmony models with manual batching for token IDs
         pad_token_id = pipe.tokenizer.pad_token_id
         _, stop_token_ids = render_harmony_prompt(build_harmony_conversation("", ""))
+        debug_enabled = os.getenv("DEBUG_HARMONY", "0") == "1"
 
         for i in tqdm(range(0, len(prompts), batch_size), desc="Processing Harmony batches"):
             batch_prompts_ids = prompts[i:i + batch_size]
@@ -156,6 +157,16 @@ def process_in_batches(
                 pad_token_id=pad_token_id,
             )
             
+            # Helper: find prompt boundary by searching for the last occurrence of the prompt
+            def search_boundary_by_suffix(row_tokens: List[int], prompt_tokens: List[int]) -> int:
+                if not prompt_tokens or not row_tokens or len(row_tokens) < len(prompt_tokens):
+                    return 0
+                last_possible = len(row_tokens) - len(prompt_tokens)
+                for start in range(last_possible, -1, -1):
+                    if row_tokens[start:start + len(prompt_tokens)] == prompt_tokens:
+                        return start + len(prompt_tokens)
+                return 0
+            
             # Process each response in the batch, slicing out the prompt part
             for j, res_tensor in enumerate(result):
                 prompt_ids = batch_prompts_ids[j]
@@ -176,21 +187,35 @@ def process_in_batches(
                 completion_tokens = row[boundary:]
                 parsed_output = parse_harmony_response(completion_tokens)
 
-                if not parsed_output:
-                    # Fallback: decode tokens and extract final channel content via markers
-                    decoded = pipe.tokenizer.decode(completion_tokens, skip_special_tokens=False)
-                    start_marker = "<|channel|>final<|message|>"
-                    end_markers = ["<|return|>", "<|end|>"]
-                    start_idx = decoded.find(start_marker)
-                    if start_idx != -1:
-                        start_idx += len(start_marker)
-                        # Find the earliest end marker after the start
-                        end_candidates = [decoded.find(m, start_idx) for m in end_markers]
-                        end_candidates = [idx for idx in end_candidates if idx != -1]
-                        end_idx = min(end_candidates) if end_candidates else None
-                        candidate = decoded[start_idx:end_idx].strip() if end_idx is not None else decoded[start_idx:].strip()
-                        parsed_output = candidate if candidate else None
-                
+                if debug_enabled and (not parsed_output):
+                    # Attempt a safer boundary search
+                    alt_boundary = search_boundary_by_suffix(row, prompt_ids)
+                    alt_completion_tokens = row[alt_boundary:]
+                    alt_parsed = parse_harmony_response(alt_completion_tokens)
+
+                    # Prepare debug preview strings
+                    preview = pipe.tokenizer.decode(completion_tokens, skip_special_tokens=False)
+                    alt_preview = pipe.tokenizer.decode(alt_completion_tokens, skip_special_tokens=False)
+                    preview_short = preview[:240].replace("\n", "\\n")
+                    alt_preview_short = alt_preview[:240].replace("\n", "\\n")
+
+                    # Check if EOS/stop tokens appear at the end of either completion
+                    row_last = row[-8:]
+                    stop_hits = [tok for tok in row_last if tok in stop_token_ids]
+
+                    print(
+                        f"[Harmony DEBUG] batch={i//batch_size} item={j} len(row)={len(row)} max_len={max_len} "
+                        f"prompt_len={prompt_len} pad_len={pad_len} left_pad={has_left_pad_prefix} "
+                        f"boundary={boundary} alt_boundary={alt_boundary} gen_len={len(completion_tokens)} "
+                        f"alt_gen_len={len(alt_completion_tokens)} stop_tail_hits={len(stop_hits)}"
+                    )
+                    print(f"[Harmony DEBUG] preview: {preview_short}")
+                    print(f"[Harmony DEBUG] alt_preview: {alt_preview_short}")
+
+                    # Prefer alt_parsed if it yields a result
+                    if alt_parsed:
+                        parsed_output = alt_parsed
+
                 outputs.append(parsed_output or "")
     else:
         # Standard processing for non-Harmony models
