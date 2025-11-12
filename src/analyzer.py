@@ -158,8 +158,22 @@ def process_in_batches(
             
             # Process each response in the batch, slicing out the prompt part
             for j, res_tensor in enumerate(result):
-                # We slice from max_len to get only the generated part
-                completion_tokens = res_tensor[max_len:].tolist()
+                prompt_ids = batch_prompts_ids[j]
+                prompt_len = len(prompt_ids)
+                pad_len = max_len - prompt_len
+                row = res_tensor.tolist()
+
+                # Detect if returned sequence includes the left padding we added
+                has_left_pad_prefix = (
+                    pad_len > 0 and len(row) >= pad_len and all(tok == pad_token_id for tok in row[:pad_len])
+                )
+                
+                # If left pad is present in outputs, boundary is max_len; otherwise it's prompt_len
+                boundary = max_len if has_left_pad_prefix else prompt_len
+                if boundary > len(row):
+                    boundary = min(len(row), max_len)
+                
+                completion_tokens = row[boundary:]
                 parsed_output = parse_harmony_response(completion_tokens)
                 outputs.append(parsed_output or "")
     else:

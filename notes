@@ -7,3 +7,10 @@ Rationale:
 
 Action:
 - When configuring models, choose instruction-tuned checkpoints and enable chat templating.
+
+The root cause is the change we made to enable batching for Harmony models. Here's the breakdown:
+Padding is the Culprit: To process inputs in a batch, they must all have the same length. I added logic to pad the shorter prompts with a special padding token to match the length of the longest prompt in the batch.
+Model Sensitivity: The gpt-oss model appears to be very sensitive to this padding. Even though we use an attention mask to tell the model to ignore the padded tokens, their presence is still changing the context enough to make the model's generation unstable. It's causing the model to think it should end its response much earlier than it should.
+Result: The model generates an End-of-Sequence token prematurely, leaving you with blank or incomplete outputs. The previous one-by-one method didn't need padding, which is why it didn't have this issue.
+The batching logic itself (grouping, padding, and slicing the results) is technically correct, but it has exposed an unfortunate behavioral quirk of this particular model. In this case, the trade-off for better performance (batching) is a severe drop in output quality, which is not acceptable.
+Given this, I recommend we revert the change for Harmony models and go back to processing them one at a time to ensure you get correct and complete outputs. I can make that change right now.
