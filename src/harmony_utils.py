@@ -1,4 +1,6 @@
 """Harmony utilities for gpt-oss model integration."""
+import os
+from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from openai_harmony import (
     HarmonyEncodingName,
@@ -25,9 +27,24 @@ HARMONY_SETTINGS = {
     }
 }
 
+DEFAULT_CACHE_DIR = Path(
+    os.environ.get("TIKTOKEN_CACHE_DIR", "/tmp/harmony_cache")
+).expanduser()
+
+
+def ensure_harmony_cache_dir() -> Path:
+    """Ensure a writable cache directory exists for Harmony vocab files."""
+    cache_dir = Path(
+        os.environ.get("TIKTOKEN_CACHE_DIR", str(DEFAULT_CACHE_DIR))
+    ).expanduser()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["TIKTOKEN_CACHE_DIR"] = str(cache_dir)
+    return cache_dir
+
 
 def load_harmony_encoder():
     """Load the Harmony encoding for gpt-oss models."""
+    ensure_harmony_cache_dir()
     return load_harmony_encoding(HarmonyEncodingName.HARMONY_GPT_OSS)
 
 
