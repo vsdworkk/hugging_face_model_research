@@ -102,7 +102,12 @@ def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = 
 
 def prepare_tokenizer(pipe: Pipeline) -> None:
     if pipe.tokenizer.pad_token_id is None:
-        pipe.tokenizer.pad_token = pipe.tokenizer.eos_token
+        # Try to use a different token for padding to avoid the warning
+        if hasattr(pipe.tokenizer, 'unk_token') and pipe.tokenizer.unk_token is not None:
+            pipe.tokenizer.pad_token = pipe.tokenizer.unk_token
+        else:
+            # Fallback to eos_token if no unk_token available
+            pipe.tokenizer.pad_token = pipe.tokenizer.eos_token
     pipe.tokenizer.padding_side = 'left'
 
 
@@ -133,7 +138,8 @@ def process_in_batches(
                 max_new_tokens=max_new_tokens,
                 eos_token_id=stop_token_ids,
                 do_sample=False,
-                pad_token_id=pipe.tokenizer.eos_token_id
+                pad_token_id=pipe.tokenizer.pad_token_id,
+                attention_mask=torch.ones_like(torch.tensor([prompt_ids])).to(pipe.model.device)
             )
             
             # Extract completion tokens and parse
