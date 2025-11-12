@@ -126,25 +126,42 @@ def process_in_batches(
     outputs = []
     
     if is_harmony_model(model_config):
-        # Process Harmony models with token IDs
-        for prompt_ids in prompts:
-            # Get stop tokens for Harmony
-            _, stop_token_ids = render_harmony_prompt(build_harmony_conversation("", ""))
+        # Process Harmony models with manual batching for token IDs
+        pad_token_id = pipe.tokenizer.pad_token_id
+        _, stop_token_ids = render_harmony_prompt(build_harmony_conversation("", ""))
+
+        for i in tqdm(range(0, len(prompts), batch_size), desc="Processing Harmony batches"):
+            batch_prompts_ids = prompts[i:i + batch_size]
             
-            # Generate with Harmony-specific settings
+            # Pad batch to the length of the longest sequence
+            max_len = max(len(p) for p in batch_prompts_ids)
+            
+            padded_prompts = []
+            attention_masks = []
+            for prompt_ids in batch_prompts_ids:
+                padding_len = max_len - len(prompt_ids)
+                padded_prompts.append([pad_token_id] * padding_len + prompt_ids)
+                attention_masks.append([0] * padding_len + [1] * len(prompt_ids))
+
+            input_ids = torch.tensor(padded_prompts).to(pipe.model.device)
+            attention_mask = torch.tensor(attention_masks).to(pipe.model.device)
+
+            # Generate responses for the batch
             result = pipe.model.generate(
-                input_ids=torch.tensor([prompt_ids]).to(pipe.model.device),
+                input_ids=input_ids,
+                attention_mask=attention_mask,
                 max_new_tokens=max_new_tokens,
                 eos_token_id=stop_token_ids,
                 do_sample=False,
-                pad_token_id=pipe.tokenizer.pad_token_id,
-                attention_mask=torch.ones_like(torch.tensor([prompt_ids])).to(pipe.model.device)
+                pad_token_id=pad_token_id,
             )
             
-            # Extract completion tokens and parse
-            completion_tokens = result[0][len(prompt_ids):].tolist()
-            parsed_output = parse_harmony_response(completion_tokens)
-            outputs.append(parsed_output or "")
+            # Process each response in the batch, slicing out the prompt part
+            for j, res_tensor in enumerate(result):
+                # We slice from max_len to get only the generated part
+                completion_tokens = res_tensor[max_len:].tolist()
+                parsed_output = parse_harmony_response(completion_tokens)
+                outputs.append(parsed_output or "")
     else:
         # Standard processing for non-Harmony models
         dataset = datasets.Dataset.from_dict({'text': prompts})
