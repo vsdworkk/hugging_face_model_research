@@ -99,7 +99,6 @@ def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = 
         token=args.get("token"),
     )
 
-
 def prepare_tokenizer(pipe: Pipeline) -> None:
     if pipe.tokenizer.pad_token_id is None:
         # Try to use a different token for padding to avoid the warning
