@@ -23,7 +23,13 @@ import pandas as pd
 from tqdm import tqdm
 import yaml
 from .prompt import SYSTEM_PROMPT, generate_prompt
-from .harmony_utils import is_harmony_model, parse_harmony_response, render_harmony_prompt, build_harmony_conversation
+from .harmony_utils import (
+    is_harmony_model,
+    parse_harmony_response,
+    render_harmony_prompt,
+    build_harmony_conversation,
+    get_harmony_stop_tokens
+)
 
 
 def load_config(path: str) -> Dict[str, Any]:
@@ -128,7 +134,7 @@ def process_in_batches(
     if is_harmony_model(model_config):
         # Process Harmony models with manual batching for token IDs
         pad_token_id = pipe.tokenizer.pad_token_id
-        _, stop_token_ids = render_harmony_prompt(build_harmony_conversation("", ""))
+        stop_token_ids = get_harmony_stop_tokens()
         debug_enabled = os.getenv("DEBUG_HARMONY", "0") == "1"
 
         for i in tqdm(range(0, len(prompts), batch_size), desc="Processing Harmony batches"):
@@ -174,13 +180,18 @@ def process_in_batches(
                 pad_len = max_len - prompt_len
                 row = res_tensor.tolist()
 
+                # First try to locate the prompt directly in the generated sequence
+                boundary = search_boundary_by_suffix(row, prompt_ids)
+
                 # Detect if returned sequence includes the left padding we added
                 has_left_pad_prefix = (
                     pad_len > 0 and len(row) >= pad_len and all(tok == pad_token_id for tok in row[:pad_len])
                 )
                 
-                # If left pad is present in outputs, boundary is max_len; otherwise it's prompt_len
-                boundary = max_len if has_left_pad_prefix else prompt_len
+                if boundary == 0:
+                    # Fall back to heuristic boundary using padding info
+                    boundary = max_len if has_left_pad_prefix else prompt_len
+
                 if boundary > len(row):
                     boundary = min(len(row), max_len)
                 

@@ -57,7 +57,7 @@ def build_harmony_conversation(system_prompt: str, user_text: str) -> Conversati
     """
     system_content = (
         SystemContent.new()
-        .with_model_identity("You are an expert AI Recruitment and Profile Quality Analyst.")
+        .with_model_identity("You are ChatGPT, a large language model trained by OpenAI.")
         .with_reasoning_effort(ReasoningEffort.LOW)  # Faster for classification tasks
         .with_conversation_start_date("2025-11-12")
         .with_knowledge_cutoff("2024-06")
@@ -83,10 +83,18 @@ def render_harmony_prompt(conversation: Conversation) -> Tuple[List[int], List[i
     Returns:
         Tuple of (prompt_token_ids, stop_token_ids)
     """
+    ensure_harmony_cache_dir()
     encoding = load_harmony_encoding(HarmonyEncodingName.HARMONY_GPT_OSS)
     prompt_ids = encoding.render_conversation_for_completion(conversation, Role.ASSISTANT)
     stop_ids = encoding.stop_tokens_for_assistant_actions()
     return prompt_ids, stop_ids
+ 
+
+def get_harmony_stop_tokens() -> List[int]:
+    """Return the EOS/stop token IDs for Harmony assistant completions."""
+    ensure_harmony_cache_dir()
+    encoding = load_harmony_encoding(HarmonyEncodingName.HARMONY_GPT_OSS)
+    return encoding.stop_tokens_for_assistant_actions()
  
 
 def parse_harmony_response(completion_tokens: List[int]) -> Optional[str]:
