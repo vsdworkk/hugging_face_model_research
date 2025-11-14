@@ -17,8 +17,6 @@ import shutil # for clearing cache
 import torch
 from transformers import pipeline
 from transformers.pipelines import Pipeline
-from transformers.pipelines.pt_utils import KeyDataset # for efficient dataset streaming
-import datasets # Hugging Face datasets library
 import pandas as pd
 from tqdm import tqdm
 import yaml
@@ -105,6 +103,46 @@ def generate_prompts(texts: List[str], model_config: Dict[str, Any], tokenizer: 
     return [generate_prompt(text, model_config, tokenizer) for text in texts]
 
 
+def _process_harmony_prompts(
+    pipe: Pipeline,
+    prompts: List[List[int]],
+    max_new_tokens: int
+) -> List[str]:
+    """Generate outputs for Harmony models with inference safeguards."""
+    pad_token_id = pipe.tokenizer.pad_token_id or pipe.tokenizer.eos_token_id
+    stop_token_ids = get_harmony_stop_tokens()
+    device = pipe.model.device
+    outputs: List[str] = []
+
+    with torch.inference_mode():
+        for prompt_ids in tqdm(prompts, desc="Processing Harmony prompts"):
+            try:
+                input_ids = torch.tensor([prompt_ids], device=device)
+                attention_mask = torch.ones_like(input_ids, device=device)
+
+                result = pipe.model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    max_new_tokens=max_new_tokens,
+                    eos_token_id=stop_token_ids,
+                    do_sample=False,
+                    pad_token_id=pad_token_id,
+                )[0].tolist()
+
+                completion_tokens = result[len(prompt_ids):]
+                parsed_output = parse_harmony_response(completion_tokens)
+                outputs.append(parsed_output or "")
+            except Exception as exc:
+                print(f"Harmony generation failed: {exc}")
+                outputs.append("")
+    return outputs
+
+
+def _batched(iterable: List[Any], batch_size: int):
+    for idx in range(0, len(iterable), batch_size):
+        yield iterable[idx : idx + batch_size]
+
+
 def process_in_batches(
     pipe: Pipeline,
     prompts: List[Any],
@@ -113,44 +151,29 @@ def process_in_batches(
     model_config: Dict[str, Any]
 ) -> List[str]:
     """Process prompts (Harmony sequentially, standard models via pipeline batching)."""
-    outputs = []
-    
     if is_harmony_model(model_config):
-        pad_token_id = pipe.tokenizer.pad_token_id or pipe.tokenizer.eos_token_id
-        stop_token_ids = get_harmony_stop_tokens()
-        device = pipe.model.device
+        return _process_harmony_prompts(pipe, prompts, max_new_tokens)
 
-        for prompt_ids in tqdm(prompts, desc="Processing Harmony prompts"):
-            input_ids = torch.tensor([prompt_ids], device=device)
-            attention_mask = torch.ones_like(input_ids, device=device)
-
-            result = pipe.model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
+    outputs: List[str] = []
+    for batch in _batched(prompts, batch_size):
+        try:
+            batch_outputs = pipe(
+                batch,
                 max_new_tokens=max_new_tokens,
-                eos_token_id=stop_token_ids,
                 do_sample=False,
-                pad_token_id=pad_token_id,
-            )[0].tolist()
+                return_full_text=False
+            )
+            for output in batch_outputs:
+                if isinstance(output, list) and output and isinstance(output[0], dict):
+                    outputs.append(output[0].get('generated_text', ''))
+                elif isinstance(output, dict):
+                    outputs.append(output.get('generated_text', ''))
+                else:
+                    outputs.append('')
+        except Exception as exc:
+            print(f"Batch generation failed: {exc}")
+            outputs.extend([''] * len(batch))
 
-            completion_tokens = result[len(prompt_ids):]
-            parsed_output = parse_harmony_response(completion_tokens)
-            outputs.append(parsed_output or "")
-    else:
-        # Standard processing for non-Harmony models
-        dataset = datasets.Dataset.from_dict({'text': prompts})
-        for output in pipe(
-            KeyDataset(dataset, 'text'),
-            batch_size=batch_size,
-            max_new_tokens=max_new_tokens,
-            do_sample=False,
-            return_full_text=False
-        ):
-            if isinstance(output, list) and output and isinstance(output[0], dict):
-                outputs.append(output[0].get('generated_text', ''))
-            elif isinstance(output, dict):
-                outputs.append(output.get('generated_text', ''))
-    
     return outputs
 
 
