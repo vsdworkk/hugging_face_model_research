@@ -73,28 +73,12 @@ def build_pipeline_args(model_config: Dict[str, Any], hf_token: Optional[str]) -
     }
 
 
-def debug_print_pipeline_args(args: Dict[str, Any]) -> None:
-    """Print the final pipeline call exactly as it will be executed (token masked)."""
-    tok_mask = "***" if args.get("token") else None
-    td_str = args.get("torch_dtype")
-    td_str = "auto" if td_str == "auto" else str(td_str)
-    print(
-        f"  pipeline(\"text-generation\",\n"
-        f"    model=\"{args['model']}\",\n"
-        f"    device_map=\"{args.get('device_map', 'auto')}\",\n"
-        f"    torch_dtype=\"{td_str}\",\n"
-        f"    token={tok_mask}\n"
-        f"  )"
-    )
-
-
 def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = None) -> Pipeline:
     """
-    Load and configure a model pipeline using a debuggable builder.
+    Load and configure a model pipeline.
     Quantization disabled; token passed directly (matches your working snippet).
     """
     args = build_pipeline_args(model_config, hf_token)
-    debug_print_pipeline_args(args)
     
     # IMPORTANT: Pass the task positionally as in your working snippet
     return pipeline(
@@ -128,32 +112,18 @@ def process_in_batches(
     max_new_tokens: int,
     model_config: Dict[str, Any]
 ) -> List[str]:
-    """Process prompts in batches, handling both standard and Harmony models."""
+    """Process prompts (Harmony sequentially, standard models via pipeline batching)."""
     outputs = []
     
     if is_harmony_model(model_config):
-        # Process Harmony models with manual batching for token IDs
-        pad_token_id = pipe.tokenizer.pad_token_id
+        pad_token_id = pipe.tokenizer.pad_token_id or pipe.tokenizer.eos_token_id
         stop_token_ids = get_harmony_stop_tokens()
-        debug_enabled = os.getenv("DEBUG_HARMONY", "0") == "1"
+        device = pipe.model.device
 
-        for i in tqdm(range(0, len(prompts), batch_size), desc="Processing Harmony batches"):
-            batch_prompts_ids = prompts[i:i + batch_size]
-            
-            # Pad batch to the length of the longest sequence
-            max_len = max(len(p) for p in batch_prompts_ids)
-            
-            padded_prompts = []
-            attention_masks = []
-            for prompt_ids in batch_prompts_ids:
-                padding_len = max_len - len(prompt_ids)
-                padded_prompts.append([pad_token_id] * padding_len + prompt_ids)
-                attention_masks.append([0] * padding_len + [1] * len(prompt_ids))
+        for prompt_ids in tqdm(prompts, desc="Processing Harmony prompts"):
+            input_ids = torch.tensor([prompt_ids], device=device)
+            attention_mask = torch.ones_like(input_ids, device=device)
 
-            input_ids = torch.tensor(padded_prompts).to(pipe.model.device)
-            attention_mask = torch.tensor(attention_masks).to(pipe.model.device)
-
-            # Generate responses for the batch
             result = pipe.model.generate(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -161,73 +131,11 @@ def process_in_batches(
                 eos_token_id=stop_token_ids,
                 do_sample=False,
                 pad_token_id=pad_token_id,
-            )
-            
-            # Helper: find prompt boundary by searching for the last occurrence of the prompt
-            def search_boundary_by_suffix(row_tokens: List[int], prompt_tokens: List[int]) -> int:
-                if not prompt_tokens or not row_tokens or len(row_tokens) < len(prompt_tokens):
-                    return 0
-                last_possible = len(row_tokens) - len(prompt_tokens)
-                for start in range(last_possible, -1, -1):
-                    if row_tokens[start:start + len(prompt_tokens)] == prompt_tokens:
-                        return start + len(prompt_tokens)
-                return 0
-            
-            # Process each response in the batch, slicing out the prompt part
-            for j, res_tensor in enumerate(result):
-                prompt_ids = batch_prompts_ids[j]
-                prompt_len = len(prompt_ids)
-                pad_len = max_len - prompt_len
-                row = res_tensor.tolist()
+            )[0].tolist()
 
-                # First try to locate the prompt directly in the generated sequence
-                boundary = search_boundary_by_suffix(row, prompt_ids)
-
-                # Detect if returned sequence includes the left padding we added
-                has_left_pad_prefix = (
-                    pad_len > 0 and len(row) >= pad_len and all(tok == pad_token_id for tok in row[:pad_len])
-                )
-                
-                if boundary == 0:
-                    # Fall back to heuristic boundary using padding info
-                    boundary = max_len if has_left_pad_prefix else prompt_len
-
-                if boundary > len(row):
-                    boundary = min(len(row), max_len)
-                
-                completion_tokens = row[boundary:]
-                parsed_output = parse_harmony_response(completion_tokens)
-
-                if debug_enabled and (not parsed_output):
-                    # Attempt a safer boundary search
-                    alt_boundary = search_boundary_by_suffix(row, prompt_ids)
-                    alt_completion_tokens = row[alt_boundary:]
-                    alt_parsed = parse_harmony_response(alt_completion_tokens)
-
-                    # Prepare debug preview strings
-                    preview = pipe.tokenizer.decode(completion_tokens, skip_special_tokens=False)
-                    alt_preview = pipe.tokenizer.decode(alt_completion_tokens, skip_special_tokens=False)
-                    preview_short = preview[:240].replace("\n", "\\n")
-                    alt_preview_short = alt_preview[:240].replace("\n", "\\n")
-
-                    # Check if EOS/stop tokens appear at the end of either completion
-                    row_last = row[-8:]
-                    stop_hits = [tok for tok in row_last if tok in stop_token_ids]
-
-                    print(
-                        f"[Harmony DEBUG] batch={i//batch_size} item={j} len(row)={len(row)} max_len={max_len} "
-                        f"prompt_len={prompt_len} pad_len={pad_len} left_pad={has_left_pad_prefix} "
-                        f"boundary={boundary} alt_boundary={alt_boundary} gen_len={len(completion_tokens)} "
-                        f"alt_gen_len={len(alt_completion_tokens)} stop_tail_hits={len(stop_hits)}"
-                    )
-                    print(f"[Harmony DEBUG] preview: {preview_short}")
-                    print(f"[Harmony DEBUG] alt_preview: {alt_preview_short}")
-
-                    # Prefer alt_parsed if it yields a result
-                    if alt_parsed:
-                        parsed_output = alt_parsed
-
-                outputs.append(parsed_output or "")
+            completion_tokens = result[len(prompt_ids):]
+            parsed_output = parse_harmony_response(completion_tokens)
+            outputs.append(parsed_output or "")
     else:
         # Standard processing for non-Harmony models
         dataset = datasets.Dataset.from_dict({'text': prompts})
