@@ -73,6 +73,43 @@ def build_pipeline_args(model_config: Dict[str, Any], hf_token: Optional[str]) -
     }
 
 
+def report_model_memory(pipe: Pipeline) -> None:
+    footprint_gb = pipe.model.get_memory_footprint() / (1024 ** 3)
+    print(f"Model memory footprint: {footprint_gb:.2f} GB")
+
+
+def report_gpu_memory(label: str) -> None:
+    if not torch.cuda.is_available():
+        return
+    gpu_allocated = torch.cuda.memory_allocated() / (1024**3)
+    gpu_reserved = torch.cuda.memory_reserved() / (1024**3)
+    print(f"{label}: allocated {gpu_allocated:.2f} GB, reserved {gpu_reserved:.2f} GB")
+
+
+def cleanup_gpu(label: str = "GPU memory after cleanup") -> None:
+    if not torch.cuda.is_available():
+        return
+    torch.cuda.empty_cache()
+    report_gpu_memory(label)
+
+
+def free_disk_gb() -> float:
+    return shutil.disk_usage(".").free / (1024**3)
+
+
+def cleanup_hf_cache(cache_dir: Optional[str] = None) -> None:
+    cache_path = cache_dir or os.path.expanduser("~/.cache/huggingface/hub")
+    free_before = free_disk_gb()
+    if os.path.isdir(cache_path):
+        shutil.rmtree(cache_path, ignore_errors=True)
+    free_after = free_disk_gb()
+    freed = free_after - free_before
+    print(
+        f"Hugging Face cache cleared: freed {freed:.2f} GB "
+        f"(free now {free_after:.2f} GB)"
+    )
+
+
 def prepare_tokenizer(pipe: Pipeline) -> None:
     if pipe.tokenizer.pad_token_id is None:
         pipe.tokenizer.pad_token = (
@@ -194,13 +231,8 @@ def analyze_single_model(
     )
     prepare_tokenizer(pipe)
 
-    footprint_gb = pipe.model.get_memory_footprint() / (1024 ** 3)
-    print(f"Model memory footprint: {footprint_gb:.2f} GB")
-
-    if torch.cuda.is_available():
-        gpu_allocated = torch.cuda.memory_allocated() / (1024**3)
-        gpu_reserved = torch.cuda.memory_reserved() / (1024**3)
-        print(f"GPU memory allocated: {gpu_allocated:.2f} GB, reserved: {gpu_reserved:.2f} GB")
+    report_model_memory(pipe)
+    report_gpu_memory("GPU memory before generation")
 
     texts = df[input_col].fillna('').astype(str).tolist()
     prompts = generate_prompts(texts, model_config, pipe.tokenizer)
@@ -211,16 +243,8 @@ def analyze_single_model(
     add_model_results_to_dataframe(df, model_name, raw_outputs, parsed_outputs)
 
     del pipe
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        gpu_allocated_after = torch.cuda.memory_allocated() / (1024**3)
-        gpu_reserved_after = torch.cuda.memory_reserved() / (1024**3)
-        print(f"GPU memory after cleanup: allocated: {gpu_allocated_after:.2f} GB, reserved: {gpu_reserved_after:.2f} GB")
-
-    # free_before = shutil.disk_usage(".").free / (1024**3)
-    # shutil.rmtree(os.path.expanduser("~/.cache/huggingface/hub"))
-    # free_after = shutil.disk_usage(".").free / (1024**3)
-    # print(f"Free disk GB after (approx): {free_after:.2f} (before: {free_before:.2f})")
+    cleanup_gpu()
+    cleanup_hf_cache()
 
 
 def analyze_profiles(
