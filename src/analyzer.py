@@ -81,10 +81,7 @@ def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = 
     # IMPORTANT: Pass the task positionally as in your working snippet
     return pipeline(
         "text-generation",
-        model=args["model"],
-        device_map=args.get("device_map", "auto"),
-        torch_dtype=args.get("torch_dtype", "auto"),
-        token=args.get("token"),
+        **args
     )
 
 def prepare_tokenizer(pipe: Pipeline) -> None:
