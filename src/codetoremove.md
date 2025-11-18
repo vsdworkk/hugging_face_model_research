@@ -1,52 +1,70 @@
+3. Redundant Tokenizer Padding Logic
 
-1. Remove the below debugging code we don't need it anymore.
+Function of section: The prepare_tokenizer function sets up padding tokens with redundant conditional logic.
 
-def debug_print_pipeline_args(args: Dict[str, Any]) -> None:
-    """Print the final pipeline call exactly as it will be executed (token masked)."""
-    tok_mask = "***" if args.get("token") else None
-    td_str = args.get("torch_dtype")
-    td_str = "auto" if td_str == "auto" else str(td_str)
-    print(
-        f"  pipeline(\"text-generation\",\n"
-        f"    model=\"{args['model']}\",\n"
-        f"    device_map=\"{args.get('device_map', 'auto')}\",\n"
-        f"    torch_dtype=\"{td_str}\",\n"
-        f"    token={tok_mask}\n"
-        f"  )"
-    )
-
-2. High Priority: Refactor process_in_batches for Simplicity. Let's not process harmony models in batches, but instead let's do it individually, removes the need to manually implement batching and makes the implementation a bit simpler.
+How it can be simplified and why it won't affect functionality: The logic can be simplified using Python's coalesce pattern to find the first available token.
 
 
-3. Let's remove this debug statement:
 
-                if debug_enabled and (not parsed_output):
-                    # Attempt a safer boundary search
-                    alt_boundary = search_boundary_by_suffix(row, prompt_ids)
-                    alt_completion_tokens = row[alt_boundary:]
-                    alt_parsed = parse_harmony_response(alt_completion_tokens)
+def prepare_tokenizer(pipe: Pipeline) -> None:
+    if pipe.tokenizer.pad_token_id is None:
+-        # Try to use a different token for padding to avoid the warning
+-        if hasattr(pipe.tokenizer, 'unk_token') and pipe.tokenizer.unk_token is not None:
+-            pipe.tokenizer.pad_token = pipe.tokenizer.unk_token
+-        else:
+-            # Fallback to eos_token if no unk_token available
+-            pipe.tokenizer.pad_token = pipe.tokenizer.eos_token
++        pipe.tokenizer.pad_token = (
++            getattr(pipe.tokenizer, 'unk_token', None) or 
++            pipe.tokenizer.eos_token
++        )
+    pipe.tokenizer.padding_side = 'left'
 
-                    # Prepare debug preview strings
-                    preview = pipe.tokenizer.decode(completion_tokens, skip_special_tokens=False)
-                    alt_preview = pipe.tokenizer.decode(alt_completion_tokens, skip_special_tokens=False)
-                    preview_short = preview[:240].replace("\n", "\\n")
-                    alt_preview_short = alt_preview[:240].replace("\n", "\\n")
 
-                    # Check if EOS/stop tokens appear at the end of either completion
-                    row_last = row[-8:]
-                    stop_hits = [tok for tok in row_last if tok in stop_token_ids]
+6. Redundant Label Conversion Logic
+Function of section: The label_to_binary function converts string labels to binary values with multiple conditional checks.
 
-                    print(
-                        f"[Harmony DEBUG] batch={i//batch_size} item={j} len(row)={len(row)} max_len={max_len} "
-                        f"prompt_len={prompt_len} pad_len={pad_len} left_pad={has_left_pad_prefix} "
-                        f"boundary={boundary} alt_boundary={alt_boundary} gen_len={len(completion_tokens)} "
-                        f"alt_gen_len={len(alt_completion_tokens)} stop_tail_hits={len(stop_hits)}"
-                    )
-                    print(f"[Harmony DEBUG] preview: {preview_short}")
-                    print(f"[Harmony DEBUG] alt_preview: {alt_preview_short}")
+How it can be simplified and why it won't affect functionality: The function can use a dictionary mapping for cleaner, more maintainable code.
 
-                    # Prefer alt_parsed if it yields a result
-                    if alt_parsed:
-                        parsed_output = alt_parsed
+Section simplified in diff format:
 
-                outputs.append(parsed_output or "")
+def label_to_binary(value) -> int:
+    """
+    Convert various label formats to binary representation.
+    
+    Binary mapping:
+    - 1: bad quality profile
+    - 0: good quality profile
+    - -1: invalid/missing value
+    """
+    if pd.isna(value):
+        return -1
+    
+-    value_str = str(value).strip().lower()
+-    
+-    # Bad quality indicators
+-    if value_str == 'bad':
+-        return 1
+-    # Good quality indicators
+-    elif value_str == 'good':
+-        return 0
+-    # Invalid value
+-    else:
+-        return -1
++    label_map = {'bad': 1, 'good': 0}
++    return label_map.get(str(value).strip().lower(), -1)
+
+7. Unnecessary Function Wrapper
+Function of section: The generate_prompts function is a one-liner wrapper that adds no value.
+
+How it can be simplified and why it won't affect functionality: This can be inlined directly where it's used.
+
+Section simplified in diff format:
+
+-def generate_prompts(texts: List[str], model_config: Dict[str, Any], tokenizer: Any) -> List[Any]:
+-    """Generate prompts - returns strings for standard models, token IDs for Harmony models."""
+-    return [generate_prompt(text, model_config, tokenizer) for text in texts]
+
+# In analyze_single_model function:
+-    prompts = generate_prompts(texts, model_config, pipe.tokenizer)
++    prompts = [generate_prompt(text, model_config, pipe.tokenizer) for text in texts]

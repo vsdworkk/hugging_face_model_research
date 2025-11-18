@@ -88,12 +88,10 @@ def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = 
 
 def prepare_tokenizer(pipe: Pipeline) -> None:
     if pipe.tokenizer.pad_token_id is None:
-        # Try to use a different token for padding to avoid the warning
-        if hasattr(pipe.tokenizer, 'unk_token') and pipe.tokenizer.unk_token is not None:
-            pipe.tokenizer.pad_token = pipe.tokenizer.unk_token
-        else:
-            # Fallback to eos_token if no unk_token available
-            pipe.tokenizer.pad_token = pipe.tokenizer.eos_token
+        pipe.tokenizer.pad_token = (
+            getattr(pipe.tokenizer, 'unk_token', None) or 
+            pipe.tokenizer.eos_token
+        )
     pipe.tokenizer.padding_side = 'left'
 
 
