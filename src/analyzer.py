@@ -73,19 +73,6 @@ def build_pipeline_args(model_config: Dict[str, Any], hf_token: Optional[str]) -
     }
 
 
-def load_model_pipeline(model_config: Dict[str, Any], hf_token: Optional[str] = None) -> Pipeline:
-    """
-    Load and configure a model pipeline.
-    Quantization disabled; token passed directly (matches your working snippet).
-    """
-    args = build_pipeline_args(model_config, hf_token)
-    
-    # IMPORTANT: Pass the task positionally as in your working snippet
-    return pipeline(
-        "text-generation",
-        **args
-    )
-
 def prepare_tokenizer(pipe: Pipeline) -> None:
     if pipe.tokenizer.pad_token_id is None:
         pipe.tokenizer.pad_token = (
@@ -198,7 +185,13 @@ def analyze_single_model(
     model_name = model_config['name']
     print(f"\nProcessing with {model_name}: {model_config['model_id']}")
 
-    pipe = load_model_pipeline(model_config, hf_token)
+    args = build_pipeline_args(model_config, hf_token)
+    
+    # IMPORTANT: Pass the task positionally as in your working snippet
+    pipe = pipeline(
+        "text-generation",
+        **args
+    )
     prepare_tokenizer(pipe)
 
     footprint_gb = pipe.model.get_memory_footprint() / (1024 ** 3)
