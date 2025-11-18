@@ -45,10 +45,12 @@ def parse_json_output(text: str) -> Optional[Dict[str, Any]]:
     except json.JSONDecodeError:
         pass
     
-    match = re.search(r'\{[^{}]*?(\{[^{}]*?\}[^{}]*?)*?\}', text)
-    if match:
+    # Fallback: find the first '{' and last '}'
+    start = text.find('{')
+    end = text.rfind('}')
+    if start != -1 and end != -1 and end > start:
         try:
-            obj = json.loads(match.group())
+            obj = json.loads(text[start : end + 1])
             return obj if isinstance(obj, dict) else None
         except json.JSONDecodeError:
             pass
