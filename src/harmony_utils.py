@@ -1,4 +1,13 @@
-"""Harmony utilities for gpt-oss model integration."""
+"""
+Harmony helpers for working with OpenAI gpt-oss models that require the Harmony
+conversation format. This module centralizes all logic around:
+
+- Preparing Harmony-compatible conversations and prompts
+- Rendering prompts to token IDs and obtaining stop tokens for inference
+- Parsing Harmony-formatted completion tokens to recover final channel output
+- Managing the cache directory needed by the Harmony encoding files
+- Detecting when a model configuration indicates Harmony support
+"""
 import os
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
@@ -12,20 +21,6 @@ from openai_harmony import (
     DeveloperContent,
     ReasoningEffort
 )
-
-# Hardcoded Harmony settings for profile analysis
-HARMONY_SETTINGS = {
-    "reasoning_level": "high",
-    "include_reasoning": False,
-    "include_commentary": False,
-    "safety_filter": True,
-    "encoding": "HARMONY_GPT_OSS",
-    "channels": {
-        "analysis": True,
-        "commentary": False,
-        "final": True
-    }
-}
 
 DEFAULT_CACHE_DIR = Path(
     os.environ.get("TIKTOKEN_CACHE_DIR", "/dbfs/FileStore/harmony_encodings")
