@@ -68,3 +68,7 @@ Section simplified in diff format:
 # In analyze_single_model function:
 -    prompts = generate_prompts(texts, model_config, pipe.tokenizer)
 +    prompts = [generate_prompt(text, model_config, pipe.tokenizer) for text in texts]
+
+
+Unused Settings Dictionary
+There's also a HARMONY_SETTINGS dictionary at the top of harmony_utils.py that contains reasoning settings, but it's not currently being used:

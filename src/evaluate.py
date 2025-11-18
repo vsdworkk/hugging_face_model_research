@@ -24,17 +24,8 @@ def label_to_binary(value) -> int:
     if pd.isna(value):
         return -1
     
-    value_str = str(value).strip().lower()
-    
-    # Bad quality indicators
-    if value_str == 'bad':
-        return 1
-    # Good quality indicators
-    elif value_str == 'good':
-        return 0
-    # Invalid value
-    else:
-        return -1
+    label_map = {'bad': 1, 'good': 0}
+    return label_map.get(str(value).strip().lower(), -1)
 
 
 def prepare_labels(
