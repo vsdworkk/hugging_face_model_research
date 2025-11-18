@@ -52,102 +52,138 @@ def prepare_labels(
     return y_true_binary[mask].values, y_pred_binary[mask].values
 
 
-def calculate_metrics(
-    y_true: np.ndarray, 
-    y_pred: np.ndarray
-) -> Dict[str, any]:
+def calculate_binary_classification_metrics(
+    y_true: np.ndarray, y_pred: np.ndarray
+) -> Dict[str, Union[float, int]]:
     """
-    Calculate classification metrics.
-    
+    Calculates detailed binary classification metrics from a confusion matrix.
+
     Args:
-        y_true: True labels (binary)
-        y_pred: Predicted labels (binary)
-        
+        y_true: True labels (binary).
+        y_pred: Predicted labels (binary).
+
     Returns:
-        Dictionary containing metrics and confusion matrix
+        Dictionary containing Precision, Recall, F1-Score, Support,
+        TP, FP, FN, and Accuracy.
     """
-    # Get classification report
-    report = classification_report(
-        y_true, 
-        y_pred, 
-        target_names=['good', 'bad'], 
-        output_dict=True,
-        zero_division=0
+    # Ensure labels are [0, 1] to handle cases with no true positives or negatives
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = (
+        2 * (precision * recall) / (precision + recall)
+        if (precision + recall) > 0
+        else 0.0
     )
-    
-    # Get confusion matrix
-    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
-    
+    accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0.0
+    support = tp + fn
+
     return {
-        'accuracy': report['accuracy'],
-        'good': report['good'],
-        'bad': report['bad'],
-        'confusion_matrix': cm,
-        'support': len(y_true)
+        "Precision": precision,
+        "Recall": recall,
+        "F1-Score": f1,
+        "Support": int(support),
+        "TP": int(tp),
+        "FP": int(fp),
+        "FN": int(fn),
+        "Accuracy": accuracy,
     }
 
 
 def evaluate_all_models(
-    df: pd.DataFrame, 
+    df: pd.DataFrame,
     model_names: Union[str, List[str]],
-    true_col: str = 'Human_flag'
-) -> pd.DataFrame:
+    true_col: str = "Human_flag",
+    tags: Optional[List[str]] = None,
+) -> None:
     """
-    Evaluate one or more models and return comparison DataFrame.
-    
+    Generates and prints a detailed performance report for one or more models,
+    including overall and per-tag metrics.
+
     Args:
-        df: DataFrame with predictions
-        model_names: Single model name or list of model names to evaluate
-        true_col: Column name for true labels
-        
-    Returns:
-        DataFrame comparing all models' performance (single row if one model)
+        df: DataFrame with predictions and true labels.
+        model_names: Single model name or list of model names to evaluate.
+        true_col: Column name for overall true quality labels.
+        tags: A list of tag names to evaluate. If None, defaults to a standard list.
     """
-    # Ensure model_names is a list
     if isinstance(model_names, str):
         model_names = [model_names]
-    
-    results = []
-    
+
+    if tags is None:
+        tags = [
+            "personal_information",
+            "sensitive_information",
+            "inappropriate_information",
+            "poor_grammar",
+        ]
+
     for model_name in model_names:
-        pred_col = f'{model_name}_quality'
-        
-        if pred_col not in df.columns:
-            print(f"Warning: Column {pred_col} not found, skipping {model_name}")
+        print("\n" + "=" * 80)
+        print(f"PER-TAG PERFORMANCE METRICS FOR MODEL: {model_name}")
+        print("=" * 80)
+
+        pred_quality_col = f"{model_name}_quality"
+        pred_tags_col = f"{model_name}_tags"
+        if pred_quality_col not in df.columns or pred_tags_col not in df.columns:
+            print(f"Warning: Prediction columns for {model_name} not found. Skipping.")
             continue
-        
-        # Prepare labels
-        y_true, y_pred = prepare_labels(df[true_col], df[pred_col])
-        
-        if len(y_true) == 0:
-            print(f"No valid predictions found for {model_name}")
+
+        results = []
+
+        # 1. Per-tag metrics calculation
+        for tag in tags:
+            if tag not in df.columns:
+                print(f"Warning: Ground truth column '{tag}' not found. Skipping.")
+                continue
+
+            y_true = df[tag].fillna(0).astype(int)
+            y_pred = df[pred_tags_col].apply(
+                lambda t: 1 if isinstance(t, list) and tag in t else 0
+            )
+
+            metrics = calculate_binary_classification_metrics(y_true, y_pred)
+            metrics["Tag"] = tag
+            results.append(metrics)
+
+        # 2. Overall metrics calculation
+        y_true_overall, y_pred_overall = prepare_labels(
+            df[true_col], df[pred_quality_col]
+        )
+
+        if len(y_true_overall) > 0:
+            overall_metrics = calculate_binary_classification_metrics(
+                y_true_overall, y_pred_overall
+            )
+            overall_metrics["Tag"] = "overall"
+            # Support for overall is the total number of evaluated samples
+            overall_metrics["Support"] = len(y_true_overall)
+            results.append(overall_metrics)
+
+        # 3. Create, format, and print the report DataFrame
+        if not results:
+            print("No results to display.")
             continue
+            
+        report_df = pd.DataFrame(results)
         
-        # Calculate metrics
-        metrics = calculate_metrics(y_true, y_pred)
-        
-        # Collect results
-        results.append({
-            'model': model_name,
-            'accuracy': metrics['accuracy'],
-            'precision_bad': metrics['bad']['precision'],
-            'recall_bad': metrics['bad']['recall'],
-            'f1_bad': metrics['bad']['f1-score'],
-            'support': metrics['support']
-        })
-    
-    # Create comparison dataframe
-    comparison_df = pd.DataFrame(results)
-    
-    # Sort by F1 score for bad profiles (descending) if multiple models
-    if len(comparison_df) > 1:
-        comparison_df = comparison_df.sort_values('f1_bad', ascending=False)
-    
-    # Print comparison only if multiple models
-    if len(comparison_df) > 1:
-        print("\n" + "="*70)
-        print("MODEL COMPARISON")
-        print("="*70)
-        print(comparison_df.to_string(index=False))
-    
-    return comparison_df
+        cols = [
+            "Tag",
+            "Precision",
+            "Recall",
+            "F1-Score",
+            "Support",
+            "TP",
+            "FP",
+            "FN",
+            "Accuracy",
+        ]
+        # Ensure all columns exist before trying to order them
+        report_df = report_df.reindex(columns=cols)
+
+        # Format float columns to 2 decimal places for cleaner output
+        for col in ["Precision", "Recall", "F1-Score", "Accuracy"]:
+            report_df[col] = report_df[col].map("{:.2f}".format)
+
+        print(report_df.to_string(index=False))
+        print("─" * 80)
