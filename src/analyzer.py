@@ -56,9 +56,8 @@ def parse_json_output(text: str) -> Optional[Dict[str, Any]]:
             pass
     return None
 
-#
-# Helpers to build & debug the final pipeline call (updated)
-#
+
+# Helpers to support model loading and inference.
 
 def build_pipeline_args(model_config: Dict[str, Any], hf_token: Optional[str]) -> Dict[str, Any]:
     """
