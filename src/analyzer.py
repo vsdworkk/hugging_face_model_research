@@ -21,13 +21,6 @@ import pandas as pd
 from tqdm import tqdm
 import yaml
 from .prompt import SYSTEM_PROMPT, generate_prompt
-from .harmony_utils import (
-    is_harmony_model,
-    parse_harmony_response,
-    render_harmony_prompt,
-    build_harmony_conversation,
-    get_harmony_stop_tokens
-)
 
 
 def load_config(path: str) -> Dict[str, Any]:
@@ -73,6 +66,28 @@ def parse_json_output(text: str) -> Optional[Dict[str, Any]]:
         except json.JSONDecodeError:
             pass
     return None
+
+
+def clean_harmony_output(text: str) -> str:
+    """
+    Clean Harmony model output by extracting content after 'assistantfinal'.
+    
+    Args:
+        text: Raw model output string
+        
+    Returns:
+        Cleaned string containing only the final response
+    """
+    if not isinstance(text, str):
+        return ""
+    
+    # Look for 'assistantfinal' marker
+    marker = "assistantfinal"
+    idx = text.find(marker)
+    
+    if idx != -1:
+        return text[idx + len(marker):].strip()
+    return text.strip()
 
 
 # Helpers to support model loading and inference.
@@ -194,51 +209,6 @@ def generate_prompts(texts: List[str], model_config: Dict[str, Any], tokenizer: 
     return [generate_prompt(text, model_config, tokenizer) for text in texts]
 
 
-def _process_harmony_prompts(
-    pipe: Pipeline,
-    prompts: List[List[int]],
-    max_new_tokens: int
-) -> List[str]:
-    """
-    Run Harmony-formatted prompts sequentially to avoid batching issues.
-
-    Args:
-        pipe: Transformers pipeline hosting the Harmony-capable model.
-        prompts: Pre-rendered Harmony token sequences.
-        max_new_tokens: Generation cap for each prompt.
-
-    Returns:
-        List of decoded JSON strings (empty string when parsing fails).
-    """
-    pad_token_id = pipe.tokenizer.pad_token_id or pipe.tokenizer.eos_token_id
-    stop_token_ids = get_harmony_stop_tokens()
-    device = pipe.model.device
-    outputs: List[str] = []
-
-    with torch.inference_mode():
-        for prompt_ids in tqdm(prompts, desc="Processing Harmony prompts"):
-            try:
-                input_ids = torch.tensor([prompt_ids], device=device)
-                attention_mask = torch.ones_like(input_ids, device=device)
-
-                result = pipe.model.generate(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    max_new_tokens=max_new_tokens,
-                    eos_token_id=stop_token_ids,
-                    do_sample=False,
-                    pad_token_id=pad_token_id,
-                )[0].tolist()
-
-                completion_tokens = result[len(prompt_ids):]
-                parsed_output = parse_harmony_response(completion_tokens)
-                outputs.append(parsed_output or "")
-            except Exception as exc:
-                print(f"Harmony generation failed: {exc}")
-                outputs.append("")
-    return outputs
-
-
 def _batched(iterable: List[Any], batch_size: int):
     """
     Yield successive slices of an iterable to support manual batching.
@@ -262,21 +232,18 @@ def process_in_batches(
     model_config: Dict[str, Any]
 ) -> List[str]:
     """
-    Execute prompts against a pipeline, respecting Harmony vs standard batching.
+    Execute prompts against a pipeline.
 
     Args:
         pipe: Configured transformers pipeline.
-        prompts: Prompt payloads (strings or Harmony token lists).
-        batch_size: Batch size for non-Harmony models.
+        prompts: Prompt payloads (strings).
+        batch_size: Batch size.
         max_new_tokens: Maximum tokens to generate per prompt.
-        model_config: Model definition used to choose Harmony logic.
+        model_config: Model definition.
 
     Returns:
         List of generated raw strings for every prompt.
     """
-    if is_harmony_model(model_config):
-        return _process_harmony_prompts(pipe, prompts, max_new_tokens)
-
     outputs: List[str] = []
     for batch in _batched(prompts, batch_size):
         try:
@@ -360,6 +327,10 @@ def analyze_single_model(
     prompts = generate_prompts(texts, model_config, pipe.tokenizer)
 
     raw_outputs = process_in_batches(pipe, prompts, batch_size, max_new_tokens, model_config)
+
+    if model_config.get('is_harmony', False):
+        raw_outputs = [clean_harmony_output(out) for out in raw_outputs]
+
     parsed_outputs = [parse_json_output(out) for out in raw_outputs]
 
     add_model_results_to_dataframe(df, model_name, raw_outputs, parsed_outputs)
@@ -372,9 +343,9 @@ def analyze_single_model(
 def analyze_profiles(
     df: pd.DataFrame,
     config: Dict[str, Any],
-    input_col: str = 'about_me',
-    batch_size: int = 10,
-    max_new_tokens: int = 2000
+    input_col: Optional[str] = None,
+    batch_size: Optional[int] = None,
+    max_new_tokens: Optional[int] = None
 ) -> pd.DataFrame:
     """
     Orchestrate multi-model evaluation over a dataset of profile snippets.
@@ -390,6 +361,12 @@ def analyze_profiles(
         Copy of the input dataframe with additional model result columns.
     """
     results = df.copy()
+    
+    # Resolve defaults from config if not provided
+    input_col = input_col or config.get('input_column', 'about_me')
+    batch_size = batch_size or config.get('batch_size', 10)
+    max_new_tokens = max_new_tokens or config.get('max_new_tokens', 2000)
+
     hf_token = (
         os.getenv("HF_TOKEN")
         or os.getenv("HUGGINGFACE_HUB_TOKEN")
