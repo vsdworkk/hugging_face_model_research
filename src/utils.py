@@ -12,6 +12,7 @@ It handles:
 import json
 import os
 import shutil
+import gc
 from typing import Any, Dict, Optional
 
 import torch
@@ -143,6 +144,7 @@ def cleanup_gpu(label: str = "GPU memory after cleanup") -> None:
     """
     if not torch.cuda.is_available():
         return
+    gc.collect()
     torch.cuda.empty_cache()
     report_gpu_memory(label)
 
