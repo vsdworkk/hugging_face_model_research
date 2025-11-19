@@ -17,6 +17,8 @@ import shutil # for clearing cache
 import torch
 from transformers import pipeline
 from transformers.pipelines import Pipeline
+from transformers.pipelines.pt_utils import KeyDataset
+import datasets
 import pandas as pd
 from tqdm import tqdm
 import yaml
@@ -209,61 +211,43 @@ def generate_prompts(texts: List[str], model_config: Dict[str, Any], tokenizer: 
     return [generate_prompt(text, model_config, tokenizer) for text in texts]
 
 
-def _batched(iterable: List[Any], batch_size: int):
-    """
-    Yield successive slices of an iterable to support manual batching.
-
-    Args:
-        iterable: Sequence to iterate over.
-        batch_size: Number of elements to include in each batch.
-
-    Yields:
-        Lists containing up to `batch_size` items from the iterable.
-    """
-    for idx in range(0, len(iterable), batch_size):
-        yield iterable[idx : idx + batch_size]
-
-
 def process_in_batches(
     pipe: Pipeline,
     prompts: List[Any],
     batch_size: int,
-    max_new_tokens: int,
-    model_config: Dict[str, Any]
+    max_new_tokens: int
 ) -> List[str]:
     """
-    Execute prompts against a pipeline.
+    Process prompts in batches through the model pipeline using Hugging Face datasets.
 
     Args:
         pipe: Configured transformers pipeline.
         prompts: Prompt payloads (strings).
         batch_size: Batch size.
         max_new_tokens: Maximum tokens to generate per prompt.
-        model_config: Model definition.
 
     Returns:
         List of generated raw strings for every prompt.
     """
     outputs: List[str] = []
-    for batch in _batched(prompts, batch_size):
-        try:
-            batch_outputs = pipe(
-                batch,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                return_full_text=False
-            )
-            for output in batch_outputs:
-                if isinstance(output, list) and output and isinstance(output[0], dict):
-                    outputs.append(output[0].get('generated_text', ''))
-                elif isinstance(output, dict):
-                    outputs.append(output.get('generated_text', ''))
-                else:
-                    outputs.append('')
-        except Exception as exc:
-            print(f"Batch generation failed: {exc}")
-            outputs.extend([''] * len(batch))
-
+    # Create a dataset for the prompts to leverage pipeline's batching
+    dataset = datasets.Dataset.from_dict({'text': prompts})
+    
+    for output in pipe(
+        KeyDataset(dataset, 'text'),
+        batch_size=batch_size,
+        max_new_tokens=max_new_tokens,
+        do_sample=False,
+        return_full_text=False
+    ):
+        # Each output corresponds to one prompt's result
+        if isinstance(output, list) and output and isinstance(output[0], dict):
+            outputs.append(output[0].get('generated_text', ''))
+        elif isinstance(output, dict):
+            outputs.append(output.get('generated_text', ''))
+        else:
+            outputs.append('')
+            
     return outputs
 
 
@@ -326,7 +310,7 @@ def analyze_single_model(
     texts = df[input_col].fillna('').astype(str).tolist()
     prompts = generate_prompts(texts, model_config, pipe.tokenizer)
 
-    raw_outputs = process_in_batches(pipe, prompts, batch_size, max_new_tokens, model_config)
+    raw_outputs = process_in_batches(pipe, prompts, batch_size, max_new_tokens)
 
     if model_config.get('is_harmony', False):
         raw_outputs = [clean_harmony_output(out) for out in raw_outputs]
