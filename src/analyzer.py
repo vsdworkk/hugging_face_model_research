@@ -19,7 +19,7 @@ from transformers.pipelines import Pipeline
 from transformers.pipelines.pt_utils import KeyDataset
 import datasets
 import pandas as pd
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from .prompt import generate_prompt
 from .utils import (
@@ -79,7 +79,7 @@ def process_in_batches(
         max_new_tokens=max_new_tokens,
         do_sample=False,
         return_full_text=False
-    ), total=len(prompts), desc="Processing batches"):
+    ), total=len(dataset), desc=f"Generating ({len(dataset)} profiles)"):
         # Each output corresponds to one prompt's result
         if isinstance(output, list) and output and isinstance(output[0], dict):
             outputs.append(output[0].get('generated_text', ''))
