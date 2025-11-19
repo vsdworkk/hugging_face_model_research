@@ -96,7 +96,7 @@ def evaluate_all_models(
     model_names: Union[str, List[str]],
     true_col: str = "Human_flag",
     tags: Optional[List[str]] = None,
-) -> None:
+) -> pd.DataFrame:
     """
     Generates and prints a detailed performance report for one or more models,
     including overall and per-tag metrics.
@@ -106,6 +106,9 @@ def evaluate_all_models(
         model_names: Single model name or list of model names to evaluate.
         true_col: Column name for overall true quality labels.
         tags: A list of tag names to evaluate. If None, defaults to a standard list.
+        
+    Returns:
+        DataFrame containing all metrics for all models.
     """
     if isinstance(model_names, str):
         model_names = [model_names]
@@ -117,6 +120,8 @@ def evaluate_all_models(
             "inappropriate_information",
             "poor_grammar",
         ]
+
+    all_results = []
 
     for model_name in model_names:
         print("\n" + "=" * 80)
@@ -144,6 +149,7 @@ def evaluate_all_models(
 
             metrics = calculate_binary_classification_metrics(y_true, y_pred)
             metrics["Tag"] = tag
+            metrics["Model"] = model_name
             results.append(metrics)
 
         # 2. Overall metrics calculation
@@ -156,9 +162,12 @@ def evaluate_all_models(
                 y_true_overall, y_pred_overall
             )
             overall_metrics["Tag"] = "overall"
+            overall_metrics["Model"] = model_name
             # Support for overall is the total number of evaluated samples
             overall_metrics["Support"] = len(y_true_overall)
             results.append(overall_metrics)
+            
+        all_results.extend(results)
 
         # 3. Create, format, and print the report DataFrame
         if not results:
@@ -187,3 +196,5 @@ def evaluate_all_models(
 
         print(report_df.to_string(index=False))
         print("─" * 80)
+        
+    return pd.DataFrame(all_results)
