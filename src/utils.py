@@ -1,3 +1,14 @@
+"""
+Utility Functions for Profile Analyzer
+This module contains helper functions used by the main analyzer module.
+It handles:
+- Configuration loading
+- Model output parsing and cleaning
+- GPU and memory management
+- Hugging Face cache management
+- Pipeline argument construction
+"""
+
 import json
 import os
 import shutil

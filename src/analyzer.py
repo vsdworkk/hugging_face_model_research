@@ -73,13 +73,13 @@ def process_in_batches(
     # Create a dataset for the prompts to leverage pipeline's batching
     dataset = datasets.Dataset.from_dict({'text': prompts})
     
-    for output in pipe(
+    for output in tqdm(pipe(
         KeyDataset(dataset, 'text'),
         batch_size=batch_size,
         max_new_tokens=max_new_tokens,
         do_sample=False,
         return_full_text=False
-    ):
+    ), total=len(prompts), desc="Processing batches"):
         # Each output corresponds to one prompt's result
         if isinstance(output, list) and output and isinstance(output[0], dict):
             outputs.append(output[0].get('generated_text', ''))
